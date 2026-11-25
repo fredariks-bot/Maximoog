@@ -1892,6 +1892,7 @@ struct EditorControl
     std::unique_ptr<juce::Component> comp;
     std::unique_ptr<juce::Label> label;
     bool isKnob = false;
+    bool isBig = false;
 };
 
 struct EditorSectionDef
@@ -1940,12 +1941,11 @@ public:
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
-            { "MIXER", 1, { "drive" } },
+            { "MIXER", 1, { "drive", "masterGain" } }
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
             { "COMPRESSOR", 1, { "compOn", "compThresh", "compRatio", "compAttack", "compRelease", "compMakeup" } },
             { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
-            { "REVERB", 1, { "revSize", "revDamp", "revMix" } },
-            { "MASTER", 1, { "masterGain" } }
+            { "REVERB", 1, { "revSize", "revDamp", "revMix" } }
         };
 
         juce::StringArray placed;
@@ -2078,6 +2078,7 @@ private:
                 audioProcessor.apvts, id, *knob));
             c.comp = std::move(knob);
             c.isKnob = true;
+            c.isBig = (id == "cutoff");
         }
 
         addAndMakeVisible(*c.comp);
@@ -2092,8 +2093,8 @@ private:
         const int pad2 = 2;
         const int colW = juce::jmax(240, (width - 2 * margin - gap) / 2);
         const int ctrlH = 60;
+        const int bigCtrlH = 80;
         const int labelH = 14;
-        const int rowH = ctrlH + labelH + 6;
         const int headerH = 20;
         const int sectionGap = 8;
         const int btnH = 26;
@@ -2109,6 +2110,13 @@ private:
 
             const int col = juce::jlimit(0, 1, s.column);
             const int colsPerRow = juce::jlimit(3, 5, n);
+
+            int maxCtrlH = ctrlH;
+            for (const auto& ctl : s.controls)
+                if (ctl.isBig)
+                    maxCtrlH = bigCtrlH;
+
+            const int rowH = maxCtrlH + labelH + 6;
             const int rows = (n + colsPerRow - 1) / colsPerRow;
             const int h = headerH + rows * rowH + 6;
 
@@ -2128,11 +2136,12 @@ private:
                 const int cy = y + r * rowH;
 
                 auto& ctl = s.controls[static_cast<size_t>(i)];
+                const int ch = ctl.isBig ? bigCtrlH : ctrlH;
                 if (ctl.isKnob)
-                    ctl.comp->setBounds(cx + pad4, cy, cellW - 2 * pad4, ctrlH);
+                    ctl.comp->setBounds(cx + pad4, cy + (maxCtrlH - ch) / 2, cellW - 2 * pad4, ch);
                 else
-                    ctl.comp->setBounds(cx + pad4, cy + (ctrlH - btnH) / 2, cellW - 2 * pad4, btnH);
-                ctl.label->setBounds(cx + pad4, cy + ctrlH + pad2, cellW - 2 * pad4, labelH);
+                    ctl.comp->setBounds(cx + pad4, cy + (maxCtrlH - btnH) / 2, cellW - 2 * pad4, btnH);
+                ctl.label->setBounds(cx + pad4, cy + maxCtrlH + pad2, cellW - 2 * pad4, labelH);
             }
 
             colY[col] = y + rows * rowH + sectionGap;
