@@ -1887,11 +1887,37 @@ private:
 // ==============================================================================
 // Custom Editor mit 2D Wavetable Fenster + 50er Preset-Auswahl + WAV-Loader
 // ==============================================================================
-class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
+struct EditorControl
+{
+    std::unique_ptr<juce::Component> comp;
+    std::unique_ptr<juce::Label> label;
+    bool isKnob = false;
+};
+
+struct EditorSectionDef
+{
+    juce::String title;
+    int column;
+    std::vector<juce::String> ids;
+};
+
+struct EditorSection
+{
+    juce::String title;
+    int column = 0;
+    juce::Rectangle<int> area;
+    std::unique_ptr<juce::Label> header;
+    std::vector<EditorControl> controls;
+};
+
+class EditorContent : public juce::Component
 {
 public:
-    explicit ModelD3AudioProcessorEditor(ModelD3AudioProcessor& p)
-        : AudioProcessorEditor(&p), audioProcessor(p), wtDisplay(p)
+    static constexpr int kBaseWidth = 960;
+    static constexpr int kTopPanelH = 140;
+
+    explicit EditorContent(ModelD3AudioProcessor& p)
+        : audioProcessor(p), wtDisplay(p)
     {
         presetBox.addItemList(WavetableBank::getPresetNames(), 1);
         presetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
@@ -1905,7 +1931,7 @@ public:
 
         addAndMakeVisible(wtDisplay);
 
-        static const std::vector<SectionDef> sectionDefs = {
+        static const std::vector<EditorSectionDef> sectionDefs = {
             { "OSC 1", 0, { "osc1On", "osc1Wave", "osc1Oct", "osc1Detune", "osc1Level" } },
             { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
             { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
@@ -1925,11 +1951,11 @@ public:
         juce::StringArray placed;
         for (const auto& def : sectionDefs)
         {
-            Section s;
+            EditorSection s;
             s.title = def.title;
             s.column = def.column;
             s.header = std::make_unique<juce::Label>(juce::String(), def.title);
-            s.header->setFont(juce::Font(juce::FontOptions(12.0f)));
+            s.header->setFont(juce::Font(juce::FontOptions(11.0f)));
             s.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
             addAndMakeVisible(*s.header);
 
@@ -1944,7 +1970,7 @@ public:
             sections.push_back(std::move(s));
         }
 
-        Section other;
+        EditorSection other;
         other.column = 1;
         for (auto* param : audioProcessor.getParameters())
         {
@@ -1956,7 +1982,7 @@ public:
             {
                 other.title = "OTHER";
                 other.header = std::make_unique<juce::Label>(juce::String(), "OTHER");
-                other.header->setFont(juce::Font(juce::FontOptions(12.0f)));
+                other.header->setFont(juce::Font(juce::FontOptions(11.0f)));
                 other.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
                 addAndMakeVisible(*other.header);
             }
@@ -1965,22 +1991,17 @@ public:
         if (other.header != nullptr)
             sections.push_back(std::move(other));
 
-        baseHeight = layoutSections(kBaseWidth, 178, 1.0f) + 10;
-        setResizable(true, true);
-        const double ratio = (double) baseHeight / (double) kBaseWidth;
-        getConstrainer()->setFixedAspectRatio(ratio);
-        constexpr int minW = 480;
-        constexpr int defaultW = 768;
-        constexpr int maxW = 2000;
-        setResizeLimits(minW, (int) (minW * ratio), maxW, (int) (maxW * ratio));
-        setSize(defaultW, (int) (defaultW * ratio));
+        baseHeight = layoutSections(kBaseWidth, kTopPanelH + 8) + 8;
+        setSize(kBaseWidth, baseHeight);
     }
+
+    int getBaseHeight() const { return baseHeight; }
 
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff181b20));
         g.setColour(juce::Colour(0xff232730));
-        g.fillRect(0, 0, getWidth(), juce::roundToInt(168.0f * getWidth() / (float) kBaseWidth));
+        g.fillRect(0, 0, getWidth(), kTopPanelH);
 
         for (const auto& s : sections)
         {
@@ -1993,59 +2014,30 @@ public:
 
     void resized() override
     {
-        const float sc = getWidth() / (float) kBaseWidth;
-        const int topH = juce::roundToInt(168.0f * sc);
-
         auto area = getLocalBounds();
-        auto topPanel = area.removeFromTop(topH).reduced(juce::roundToInt(10.0f * sc), juce::roundToInt(8.0f * sc));
+        auto topPanel = area.removeFromTop(kTopPanelH).reduced(10, 8);
 
-        auto controlRow = topPanel.removeFromTop(juce::roundToInt(30.0f * sc));
-        presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - juce::roundToInt(125.0f * sc)));
-        controlRow.removeFromLeft(juce::roundToInt(8.0f * sc));
+        auto controlRow = topPanel.removeFromTop(30);
+        presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - 125));
+        controlRow.removeFromLeft(8);
         loadBtn.setBounds(controlRow);
 
-        topPanel.removeFromTop(juce::roundToInt(8.0f * sc));
+        topPanel.removeFromTop(8);
         wtDisplay.setBounds(topPanel);
 
-        layoutSections(getWidth(), topH + juce::roundToInt(10.0f * sc), sc);
+        layoutSections(getWidth(), kTopPanelH + 8);
     }
 
 private:
-    static constexpr int kBaseWidth = 960;
-    int baseHeight = 0;
-
-    struct Control
-    {
-        std::unique_ptr<juce::Component> comp;
-        std::unique_ptr<juce::Label> label;
-        bool isKnob = false;
-    };
-
-    struct SectionDef
-    {
-        juce::String title;
-        int column;
-        std::vector<juce::String> ids;
-    };
-
-    struct Section
-    {
-        juce::String title;
-        int column = 0;
-        juce::Rectangle<int> area;
-        std::unique_ptr<juce::Label> header;
-        std::vector<Control> controls;
-    };
-
-    void addControlToSection(Section& s, juce::AudioProcessorParameter* param)
+    void addControlToSection(EditorSection& s, juce::AudioProcessorParameter* param)
     {
         auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
 
-        Control c;
+        EditorControl c;
         c.label = std::make_unique<juce::Label>(juce::String(), param->getName(64));
         c.label->setJustificationType(juce::Justification::centred);
         c.label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        c.label->setFont(juce::Font(juce::FontOptions(11.0f)));
+        c.label->setFont(juce::Font(juce::FontOptions(10.0f)));
         addAndMakeVisible(*c.label);
 
         const auto id = withID != nullptr ? withID->paramID : juce::String();
@@ -2092,19 +2084,19 @@ private:
         s.controls.push_back(std::move(c));
     }
 
-    int layoutSections(int width, int top, float sc)
+    int layoutSections(int width, int top)
     {
-        const int margin = juce::roundToInt(12.0f * sc);
-        const int gap = juce::roundToInt(12.0f * sc);
-        const int pad4 = juce::roundToInt(4.0f * sc);
-        const int pad2 = juce::roundToInt(2.0f * sc);
-        const int colW = juce::jmax(juce::roundToInt(240.0f * sc), (width - 2 * margin - gap) / 2);
-        const int ctrlH = juce::roundToInt(88.0f * sc);
-        const int labelH = juce::roundToInt(18.0f * sc);
-        const int rowH = ctrlH + labelH + juce::roundToInt(8.0f * sc);
-        const int headerH = juce::roundToInt(24.0f * sc);
-        const int sectionGap = juce::roundToInt(12.0f * sc);
-        const int btnH = juce::roundToInt(30.0f * sc);
+        const int margin = 12;
+        const int gap = 12;
+        const int pad4 = 4;
+        const int pad2 = 2;
+        const int colW = juce::jmax(240, (width - 2 * margin - gap) / 2);
+        const int ctrlH = 60;
+        const int labelH = 14;
+        const int rowH = ctrlH + labelH + 6;
+        const int headerH = 20;
+        const int sectionGap = 8;
+        const int btnH = 26;
 
         int colY[2] = { top, top };
         const int colX[2] = { margin, margin + colW + gap };
@@ -2118,15 +2110,13 @@ private:
             const int col = juce::jlimit(0, 1, s.column);
             const int colsPerRow = juce::jlimit(3, 5, n);
             const int rows = (n + colsPerRow - 1) / colsPerRow;
-            const int h = headerH + rows * rowH + juce::roundToInt(6.0f * sc);
+            const int h = headerH + rows * rowH + 6;
 
             const int x = colX[col];
             int y = colY[col];
 
-            s.area = juce::Rectangle<int>(x - juce::roundToInt(5.0f * sc), y - juce::roundToInt(4.0f * sc),
-                                         colW + juce::roundToInt(10.0f * sc), h + juce::roundToInt(4.0f * sc));
+            s.area = juce::Rectangle<int>(x - 5, y - 4, colW + 10, h + 4);
             s.header->setBounds(x, y, colW, headerH);
-            s.header->setFont(juce::Font(juce::FontOptions(12.0f * sc)));
             y += headerH;
 
             const int cellW = juce::jmax(1, colW / colsPerRow);
@@ -2143,7 +2133,6 @@ private:
                 else
                     ctl.comp->setBounds(cx + pad4, cy + (ctrlH - btnH) / 2, cellW - 2 * pad4, btnH);
                 ctl.label->setBounds(cx + pad4, cy + ctrlH + pad2, cellW - 2 * pad4, labelH);
-                ctl.label->setFont(juce::Font(juce::FontOptions(11.0f * sc)));
             }
 
             colY[col] = y + rows * rowH + sectionGap;
@@ -2174,10 +2163,50 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> presetAttachment;
     juce::TextButton loadBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
-    std::vector<Section> sections;
+    std::vector<EditorSection> sections;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
+    int baseHeight = 0;
+};
+
+class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
+{
+public:
+    explicit ModelD3AudioProcessorEditor(ModelD3AudioProcessor& p)
+        : AudioProcessorEditor(&p), content(p)
+    {
+        addAndMakeVisible(content);
+        baseHeight = content.getBaseHeight();
+
+        setResizable(true, true);
+        const double ratio = (double) baseHeight / (double) EditorContent::kBaseWidth;
+        getConstrainer()->setFixedAspectRatio(ratio);
+        constexpr int minW = 440;
+        constexpr int defaultW = 720;
+        constexpr int maxW = 1920;
+        setResizeLimits(minW, (int) (minW * ratio), maxW, (int) (maxW * ratio));
+        setSize(defaultW, (int) (defaultW * ratio));
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(0xff181b20));
+    }
+
+    void resized() override
+    {
+        const float sc = juce::jmin(getWidth() / (float) EditorContent::kBaseWidth,
+                                    getHeight() / (float) baseHeight);
+        const int cw = juce::roundToInt(EditorContent::kBaseWidth * sc);
+        const int ch = juce::roundToInt(baseHeight * sc);
+        content.setTopLeftPosition((getWidth() - cw) / 2, (getHeight() - ch) / 2);
+        content.setTransform(juce::AffineTransform::scale(sc));
+    }
+
+private:
+    EditorContent content;
+    int baseHeight = 0;
 };
 
 juce::AudioProcessorEditor* ModelD3AudioProcessor::createEditor()
