@@ -1939,7 +1939,7 @@ public:
             { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
             { "FILTER", 0, { "cutoff", "resonance", "contour" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
-            { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
+            { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
             { "MIXER", 1, { "drive", "masterGain" } },
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
@@ -1975,7 +1975,8 @@ public:
         for (auto* param : audioProcessor.getParameters())
         {
             auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
-            if (withID == nullptr || withID->paramID == "wtPreset" || placed.contains(withID->paramID))
+            if (withID == nullptr || withID->paramID == "wtPreset" || withID->paramID == "aRelease"
+                || placed.contains(withID->paramID))
                 continue;
 
             if (other.header == nullptr)
