@@ -3,6 +3,8 @@ name: Build Model D-3 Synth (Windows VST3)
 on:
   push:
     branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
