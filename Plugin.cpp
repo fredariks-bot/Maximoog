@@ -1940,7 +1940,7 @@ public:
             { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
             { "FILTER", 0, { "cutoff", "resonance", "contour" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
-            { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain" } },
+            { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
             { "MIXER", 1, { "drive", "masterGain" } },
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
@@ -1976,8 +1976,7 @@ public:
         for (auto* param : audioProcessor.getParameters())
         {
             auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
-            if (withID == nullptr || withID->paramID == "wtPreset" || withID->paramID == "aRelease"
-                || placed.contains(withID->paramID))
+            if (withID == nullptr || withID->paramID == "wtPreset" || placed.contains(withID->paramID))
                 continue;
 
             if (other.header == nullptr)
@@ -2224,7 +2223,15 @@ public:
         : AudioProcessorEditor(&p), content(p)
     {
         addAndMakeVisible(content);
-        content.onRelayout = [this]() { resized(); };
+        content.onRelayout = [this]()
+        {
+            const float sc = getWidth() / (float) EditorContent::kBaseWidth;
+            const int newH = juce::roundToInt(content.getHeight() * sc);
+            getConstrainer()->setFixedAspectRatio((double) content.getHeight() / (double) EditorContent::kBaseWidth);
+            if (newH > 0 && newH != getHeight())
+                setSize(getWidth(), newH);
+            resized();
+        };
 
         setResizable(true, true);
         const double ratio = (double) content.getHeight() / (double) EditorContent::kBaseWidth;
