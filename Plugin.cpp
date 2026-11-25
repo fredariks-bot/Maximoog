@@ -1941,7 +1941,7 @@ public:
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
-            { "MIXER", 1, { "drive", "masterGain" } }
+            { "MIXER", 1, { "drive", "masterGain" } },
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
             { "COMPRESSOR", 1, { "compOn", "compThresh", "compRatio", "compAttack", "compRelease", "compMakeup" } },
             { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
