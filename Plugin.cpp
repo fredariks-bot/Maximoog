@@ -1250,7 +1250,7 @@ public:
         delayLineL.reset();
         delayLineR.reset();
 
-        reverb.prepare(stereoSpec);
+        reverb.setSampleRate(sampleRate);
         reverb.reset();
 
         heldNotes.clear();
