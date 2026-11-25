@@ -7,6 +7,7 @@
 #include <random>
 #include <memory>
 #include <array>
+#include <functional>
 
 // ==============================================================================
 // Analog Thermal & VCO Pitch Drift Generator (Ornstein-Uhlenbeck Random Walk)
@@ -1911,7 +1912,7 @@ struct EditorSection
     std::vector<EditorControl> controls;
 };
 
-class EditorContent : public juce::Component
+class EditorContent : public juce::Component, private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     static constexpr int kBaseWidth = 960;
@@ -1992,17 +1993,22 @@ public:
         if (other.header != nullptr)
             sections.push_back(std::move(other));
 
-        baseHeight = layoutSections(kBaseWidth, kTopPanelH + 8) + 8;
-        setSize(kBaseWidth, baseHeight);
+        setSize(kBaseWidth, layoutSections(kBaseWidth, kTopPanelH + 8) + 8);
+
+        audioProcessor.apvts.addParameterListener("wtOn", this);
+        updateWavetablePanel(audioProcessor.apvts.getRawParameterValue("wtOn")->load() > 0.5f);
     }
 
-    int getBaseHeight() const { return baseHeight; }
+    ~EditorContent() override
+    {
+        audioProcessor.apvts.removeParameterListener("wtOn", this);
+    }
 
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff181b20));
         g.setColour(juce::Colour(0xff232730));
-        g.fillRect(0, 0, getWidth(), kTopPanelH);
+        g.fillRect(0, 0, getWidth(), topPanelH);
 
         for (const auto& s : sections)
         {
@@ -2016,20 +2022,49 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        auto topPanel = area.removeFromTop(kTopPanelH).reduced(10, 8);
 
-        auto controlRow = topPanel.removeFromTop(30);
-        presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - 125));
-        controlRow.removeFromLeft(8);
-        loadBtn.setBounds(controlRow);
+        if (topPanelH > 0)
+        {
+            auto topPanel = area.removeFromTop(topPanelH).reduced(10, 8);
 
-        topPanel.removeFromTop(8);
-        wtDisplay.setBounds(topPanel);
+            auto controlRow = topPanel.removeFromTop(30);
+            presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - 125));
+            controlRow.removeFromLeft(8);
+            loadBtn.setBounds(controlRow);
 
-        layoutSections(getWidth(), kTopPanelH + 8);
+            topPanel.removeFromTop(8);
+            wtDisplay.setBounds(topPanel);
+        }
+
+        layoutSections(getWidth(), topPanelH + 8);
     }
 
 private:
+    void parameterChanged(const juce::String& parameterID, float newValue) override
+    {
+        if (parameterID != "wtOn")
+            return;
+
+        juce::Component::SafePointer<EditorContent> safeThis(this);
+        const bool show = newValue > 0.5f;
+        juce::MessageManager::callAsync([safeThis, show]()
+        {
+            if (safeThis != nullptr)
+                safeThis->updateWavetablePanel(show);
+        });
+    }
+
+    void updateWavetablePanel(bool show)
+    {
+        topPanelH = show ? kTopPanelH : 0;
+        wtDisplay.setVisible(show);
+        presetBox.setVisible(show);
+        loadBtn.setVisible(show);
+        setSize(kBaseWidth, layoutSections(kBaseWidth, topPanelH + 8) + 8);
+        if (onRelayout)
+            onRelayout();
+    }
+
     void addControlToSection(EditorSection& s, juce::AudioProcessorParameter* param)
     {
         auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
@@ -2177,7 +2212,8 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
-    int baseHeight = 0;
+    int topPanelH = kTopPanelH;
+    std::function<void()> onRelayout;
 };
 
 class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
@@ -2187,10 +2223,10 @@ public:
         : AudioProcessorEditor(&p), content(p)
     {
         addAndMakeVisible(content);
-        baseHeight = content.getBaseHeight();
+        content.onRelayout = [this]() { resized(); };
 
         setResizable(true, true);
-        const double ratio = (double) baseHeight / (double) EditorContent::kBaseWidth;
+        const double ratio = (double) content.getHeight() / (double) EditorContent::kBaseWidth;
         getConstrainer()->setFixedAspectRatio(ratio);
         constexpr int minW = 440;
         constexpr int defaultW = 720;
@@ -2206,17 +2242,17 @@ public:
 
     void resized() override
     {
+        const int ch = content.getHeight();
         const float sc = juce::jmin(getWidth() / (float) EditorContent::kBaseWidth,
-                                    getHeight() / (float) baseHeight);
+                                    ch > 0 ? getHeight() / (float) ch : 1.0f);
         const int cw = juce::roundToInt(EditorContent::kBaseWidth * sc);
-        const int ch = juce::roundToInt(baseHeight * sc);
-        content.setTopLeftPosition((getWidth() - cw) / 2, (getHeight() - ch) / 2);
+        const int cht = juce::roundToInt(ch * sc);
+        content.setTopLeftPosition((getWidth() - cw) / 2, (getHeight() - cht) / 2);
         content.setTransform(juce::AffineTransform::scale(sc));
     }
 
 private:
     EditorContent content;
-    int baseHeight = 0;
 };
 
 juce::AudioProcessorEditor* ModelD3AudioProcessor::createEditor()
