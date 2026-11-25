@@ -1965,17 +1965,22 @@ public:
         if (other.header != nullptr)
             sections.push_back(std::move(other));
 
-        const int contentBottom = layoutSections(kEditorWidth, 178);
+        baseHeight = layoutSections(kBaseWidth, 178, 1.0f) + 10;
         setResizable(true, true);
-        setResizeLimits(kEditorWidth, contentBottom + 10, 2000, 3000);
-        setSize(kEditorWidth, contentBottom + 10);
+        const double ratio = (double) baseHeight / (double) kBaseWidth;
+        getConstrainer()->setFixedAspectRatio(ratio);
+        constexpr int minW = 480;
+        constexpr int defaultW = 768;
+        constexpr int maxW = 2000;
+        setResizeLimits(minW, (int) (minW * ratio), maxW, (int) (maxW * ratio));
+        setSize(defaultW, (int) (defaultW * ratio));
     }
 
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff181b20));
         g.setColour(juce::Colour(0xff232730));
-        g.fillRect(0, 0, getWidth(), 168);
+        g.fillRect(0, 0, getWidth(), juce::roundToInt(168.0f * getWidth() / (float) kBaseWidth));
 
         for (const auto& s : sections)
         {
@@ -1988,22 +1993,26 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds();
-        auto topPanel = area.removeFromTop(168).reduced(10, 8);
+        const float sc = getWidth() / (float) kBaseWidth;
+        const int topH = juce::roundToInt(168.0f * sc);
 
-        auto controlRow = topPanel.removeFromTop(30);
-        presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - 125));
-        controlRow.removeFromLeft(8);
+        auto area = getLocalBounds();
+        auto topPanel = area.removeFromTop(topH).reduced(juce::roundToInt(10.0f * sc), juce::roundToInt(8.0f * sc));
+
+        auto controlRow = topPanel.removeFromTop(juce::roundToInt(30.0f * sc));
+        presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - juce::roundToInt(125.0f * sc)));
+        controlRow.removeFromLeft(juce::roundToInt(8.0f * sc));
         loadBtn.setBounds(controlRow);
 
-        topPanel.removeFromTop(8);
+        topPanel.removeFromTop(juce::roundToInt(8.0f * sc));
         wtDisplay.setBounds(topPanel);
 
-        layoutSections(getWidth(), 178);
+        layoutSections(getWidth(), topH + juce::roundToInt(10.0f * sc), sc);
     }
 
 private:
-    static constexpr int kEditorWidth = 960;
+    static constexpr int kBaseWidth = 960;
+    int baseHeight = 0;
 
     struct Control
     {
@@ -2083,16 +2092,19 @@ private:
         s.controls.push_back(std::move(c));
     }
 
-    int layoutSections(int width, int top)
+    int layoutSections(int width, int top, float sc)
     {
-        const int margin = 12;
-        const int gap = 12;
-        const int colW = juce::jmax(240, (width - 2 * margin - gap) / 2);
-        const int ctrlH = 88;
-        const int labelH = 18;
-        const int rowH = ctrlH + labelH + 8;
-        const int headerH = 24;
-        const int sectionGap = 12;
+        const int margin = juce::roundToInt(12.0f * sc);
+        const int gap = juce::roundToInt(12.0f * sc);
+        const int pad4 = juce::roundToInt(4.0f * sc);
+        const int pad2 = juce::roundToInt(2.0f * sc);
+        const int colW = juce::jmax(juce::roundToInt(240.0f * sc), (width - 2 * margin - gap) / 2);
+        const int ctrlH = juce::roundToInt(88.0f * sc);
+        const int labelH = juce::roundToInt(18.0f * sc);
+        const int rowH = ctrlH + labelH + juce::roundToInt(8.0f * sc);
+        const int headerH = juce::roundToInt(24.0f * sc);
+        const int sectionGap = juce::roundToInt(12.0f * sc);
+        const int btnH = juce::roundToInt(30.0f * sc);
 
         int colY[2] = { top, top };
         const int colX[2] = { margin, margin + colW + gap };
@@ -2106,13 +2118,15 @@ private:
             const int col = juce::jlimit(0, 1, s.column);
             const int colsPerRow = juce::jlimit(3, 5, n);
             const int rows = (n + colsPerRow - 1) / colsPerRow;
-            const int h = headerH + rows * rowH + 6;
+            const int h = headerH + rows * rowH + juce::roundToInt(6.0f * sc);
 
             const int x = colX[col];
             int y = colY[col];
 
-            s.area = juce::Rectangle<int>(x - 5, y - 4, colW + 10, h + 4);
+            s.area = juce::Rectangle<int>(x - juce::roundToInt(5.0f * sc), y - juce::roundToInt(4.0f * sc),
+                                         colW + juce::roundToInt(10.0f * sc), h + juce::roundToInt(4.0f * sc));
             s.header->setBounds(x, y, colW, headerH);
+            s.header->setFont(juce::Font(juce::FontOptions(12.0f * sc)));
             y += headerH;
 
             const int cellW = juce::jmax(1, colW / colsPerRow);
@@ -2125,10 +2139,11 @@ private:
 
                 auto& ctl = s.controls[static_cast<size_t>(i)];
                 if (ctl.isKnob)
-                    ctl.comp->setBounds(cx + 4, cy, cellW - 8, ctrlH);
+                    ctl.comp->setBounds(cx + pad4, cy, cellW - 2 * pad4, ctrlH);
                 else
-                    ctl.comp->setBounds(cx + 4, cy + (ctrlH - 30) / 2, cellW - 8, 30);
-                ctl.label->setBounds(cx + 4, cy + ctrlH + 2, cellW - 8, labelH);
+                    ctl.comp->setBounds(cx + pad4, cy + (ctrlH - btnH) / 2, cellW - 2 * pad4, btnH);
+                ctl.label->setBounds(cx + pad4, cy + ctrlH + pad2, cellW - 2 * pad4, labelH);
+                ctl.label->setFont(juce::Font(juce::FontOptions(11.0f * sc)));
             }
 
             colY[col] = y + rows * rowH + sectionGap;
