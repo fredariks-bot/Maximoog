@@ -1891,7 +1891,7 @@ class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit ModelD3AudioProcessorEditor(ModelD3AudioProcessor& p)
-        : AudioProcessorEditor(&p), audioProcessor(p), wtDisplay(p), genericEditor(p)
+        : AudioProcessorEditor(&p), audioProcessor(p), wtDisplay(p)
     {
         presetBox.addItemList(WavetableBank::getPresetNames(), 1);
         presetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
@@ -1904,10 +1904,64 @@ public:
         addAndMakeVisible(loadBtn);
 
         addAndMakeVisible(wtDisplay);
-        addAndMakeVisible(genericEditor);
+
+        for (auto* param : audioProcessor.getParameters())
+        {
+            auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
+            if (withID == nullptr || withID->paramID == "wtPreset")
+                continue;
+
+            Control c;
+            c.label = std::make_unique<juce::Label>(juce::String(), param->getName(64));
+            c.label->setJustificationType(juce::Justification::centred);
+            c.label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+            c.label->setFont(juce::Font(juce::FontOptions(11.0f)));
+            addAndMakeVisible(*c.label);
+
+            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(param))
+            {
+                auto combo = std::make_unique<juce::ComboBox>();
+                combo->addItemList(choice->choices, 1);
+                combo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff232730));
+                combo->setColour(juce::ComboBox::textColourId, juce::Colours::lightgrey);
+                combo->setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3a4150));
+                comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+                    audioProcessor.apvts, withID->paramID, *combo));
+                c.comp = std::move(combo);
+                c.isKnob = false;
+            }
+            else if (dynamic_cast<juce::AudioParameterBool*>(param) != nullptr)
+            {
+                auto btn = std::make_unique<juce::TextButton>();
+                btn->setClickingTogglesState(true);
+                btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff232730));
+                btn->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2c5e8a));
+                btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+                buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+                    audioProcessor.apvts, withID->paramID, *btn));
+                c.comp = std::move(btn);
+                c.isKnob = false;
+            }
+            else
+            {
+                auto knob = std::make_unique<juce::Slider>();
+                knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+                knob->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+                knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff2c5e8a));
+                knob->setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff3a4150));
+                knob->setColour(juce::Slider::thumbColourId, juce::Colours::white);
+                sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+                    audioProcessor.apvts, withID->paramID, *knob));
+                c.comp = std::move(knob);
+                c.isKnob = true;
+            }
+
+            addAndMakeVisible(*c.comp);
+            controls.push_back(std::move(c));
+        }
 
         setResizable(true, true);
-        setSize(620, 840);
+        setSize(620, 1030);
     }
 
     void paint(juce::Graphics& g) override
@@ -1930,10 +1984,37 @@ public:
         topPanel.removeFromTop(8);
         wtDisplay.setBounds(topPanel);
 
-        genericEditor.setBounds(area);
+        auto grid = area.reduced(10);
+        const int cols = 6;
+        const int cellW = juce::jmax(1, grid.getWidth() / cols);
+        const int rowH = 84;
+        const int ctrlH = 58;
+        const int labelH = 16;
+
+        for (size_t i = 0; i < controls.size(); ++i)
+        {
+            const int col = static_cast<int>(i % cols);
+            const int row = static_cast<int>(i / cols);
+            const int x = grid.getX() + col * cellW;
+            const int y = grid.getY() + row * rowH;
+
+            auto& c = controls[i];
+            if (c.isKnob)
+                c.comp->setBounds(x + 4, y, cellW - 8, ctrlH);
+            else
+                c.comp->setBounds(x + 4, y + (ctrlH - 26) / 2, cellW - 8, 26);
+            c.label->setBounds(x + 4, y + ctrlH + 2, cellW - 8, labelH);
+        }
     }
 
 private:
+    struct Control
+    {
+        std::unique_ptr<juce::Component> comp;
+        std::unique_ptr<juce::Label> label;
+        bool isKnob = false;
+    };
+
     void openWavetableChooser()
     {
         fileChooser = std::make_unique<juce::FileChooser>(
@@ -1952,11 +2033,14 @@ private:
 
     ModelD3AudioProcessor& audioProcessor;
     Wavetable2DDisplay wtDisplay;
-    juce::GenericAudioProcessorEditor genericEditor;
     juce::ComboBox presetBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> presetAttachment;
     juce::TextButton loadBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    std::vector<Control> controls;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
 };
 
 juce::AudioProcessorEditor* ModelD3AudioProcessor::createEditor()
