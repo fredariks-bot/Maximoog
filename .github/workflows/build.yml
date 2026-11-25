@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout repository
@@ -23,4 +23,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Model-D-3-Synth-Windows-VST3
-          path: build/ModelD3Synth_artefacts/Release/VST3/Model D-3 Synth.vst3
+          path: build/ModelD3Synth_artefacts/**/*.vst3
+          if-no-files-found: error
