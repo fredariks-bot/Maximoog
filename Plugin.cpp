@@ -1905,34 +1905,35 @@ public:
 
         addAndMakeVisible(wtDisplay);
 
-        static const std::vector<std::pair<juce::String, std::vector<juce::String>>> sectionDefs = {
-            { "VOICE",         { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
-            { "OSC 1",         { "osc1On", "osc1Wave", "osc1Oct", "osc1Detune", "osc1Level" } },
-            { "OSC 2",         { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
-            { "OSC 3",         { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
-            { "WAVETABLE OSC", { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
-            { "MIXER",         { "drive" } },
-            { "FILTER",        { "cutoff", "resonance", "contour" } },
-            { "FILTER ENV",    { "fAttack", "fDecay", "fSustain" } },
-            { "AMP ENV",       { "aAttack", "aDecay", "aSustain", "aRelease" } },
-            { "ARPEGGIATOR",   { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
-            { "COMPRESSOR",    { "compOn", "compThresh", "compRatio", "compAttack", "compRelease", "compMakeup" } },
-            { "DELAY",         { "delayTime", "delayFeedback", "delayMix" } },
-            { "REVERB",        { "revSize", "revDamp", "revMix" } },
-            { "MASTER",        { "masterGain" } }
+        static const std::vector<SectionDef> sectionDefs = {
+            { "OSC 1", 0, { "osc1On", "osc1Wave", "osc1Oct", "osc1Detune", "osc1Level" } },
+            { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
+            { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
+            { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
+            { "FILTER", 0, { "cutoff", "resonance", "contour" } },
+            { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
+            { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
+            { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
+            { "MIXER", 1, { "drive" } },
+            { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
+            { "COMPRESSOR", 1, { "compOn", "compThresh", "compRatio", "compAttack", "compRelease", "compMakeup" } },
+            { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
+            { "REVERB", 1, { "revSize", "revDamp", "revMix" } },
+            { "MASTER", 1, { "masterGain" } }
         };
 
         juce::StringArray placed;
         for (const auto& def : sectionDefs)
         {
             Section s;
-            s.title = def.first;
-            s.header = std::make_unique<juce::Label>(juce::String(), def.first);
+            s.title = def.title;
+            s.column = def.column;
+            s.header = std::make_unique<juce::Label>(juce::String(), def.title);
             s.header->setFont(juce::Font(juce::FontOptions(12.0f)));
             s.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
             addAndMakeVisible(*s.header);
 
-            for (const auto& id : def.second)
+            for (const auto& id : def.ids)
             {
                 if (auto* param = audioProcessor.apvts.getParameter(id))
                 {
@@ -1944,6 +1945,7 @@ public:
         }
 
         Section other;
+        other.column = 1;
         for (auto* param : audioProcessor.getParameters())
         {
             auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
@@ -2001,7 +2003,7 @@ public:
     }
 
 private:
-    static constexpr int kEditorWidth = 900;
+    static constexpr int kEditorWidth = 960;
 
     struct Control
     {
@@ -2010,9 +2012,17 @@ private:
         bool isKnob = false;
     };
 
+    struct SectionDef
+    {
+        juce::String title;
+        int column;
+        std::vector<juce::String> ids;
+    };
+
     struct Section
     {
         juce::String title;
+        int column = 0;
         juce::Rectangle<int> area;
         std::unique_ptr<juce::Label> header;
         std::vector<Control> controls;
@@ -2075,14 +2085,14 @@ private:
 
     int layoutSections(int width, int top)
     {
-        const int margin = 10;
-        const int gap = 10;
-        const int colW = juce::jmax(200, (width - 2 * margin - gap) / 2);
-        const int colsPerRow = 5;
-        const int rowH = 84;
-        const int ctrlH = 58;
-        const int labelH = 16;
-        const int headerH = 20;
+        const int margin = 12;
+        const int gap = 12;
+        const int colW = juce::jmax(240, (width - 2 * margin - gap) / 2);
+        const int ctrlH = 88;
+        const int labelH = 18;
+        const int rowH = ctrlH + labelH + 8;
+        const int headerH = 24;
+        const int sectionGap = 12;
 
         int colY[2] = { top, top };
         const int colX[2] = { margin, margin + colW + gap };
@@ -2093,14 +2103,15 @@ private:
             if (n == 0)
                 continue;
 
+            const int col = juce::jlimit(0, 1, s.column);
+            const int colsPerRow = juce::jlimit(3, 5, n);
             const int rows = (n + colsPerRow - 1) / colsPerRow;
             const int h = headerH + rows * rowH + 6;
 
-            const int col = (colY[0] <= colY[1]) ? 0 : 1;
             const int x = colX[col];
             int y = colY[col];
 
-            s.area = juce::Rectangle<int>(x - 4, y - 4, colW + 8, h + 4);
+            s.area = juce::Rectangle<int>(x - 5, y - 4, colW + 10, h + 4);
             s.header->setBounds(x, y, colW, headerH);
             y += headerH;
 
@@ -2116,11 +2127,11 @@ private:
                 if (ctl.isKnob)
                     ctl.comp->setBounds(cx + 4, cy, cellW - 8, ctrlH);
                 else
-                    ctl.comp->setBounds(cx + 4, cy + (ctrlH - 26) / 2, cellW - 8, 26);
+                    ctl.comp->setBounds(cx + 4, cy + (ctrlH - 30) / 2, cellW - 8, 30);
                 ctl.label->setBounds(cx + 4, cy + ctrlH + 2, cellW - 8, labelH);
             }
 
-            colY[col] = y + rows * rowH + gap;
+            colY[col] = y + rows * rowH + sectionGap;
         }
 
         return juce::jmax(colY[0], colY[1]);
