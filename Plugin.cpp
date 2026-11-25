@@ -2004,6 +2004,8 @@ public:
         audioProcessor.apvts.removeParameterListener("wtOn", this);
     }
 
+    std::function<void()> onRelayout;
+
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff181b20));
@@ -2213,7 +2215,6 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
     int topPanelH = kTopPanelH;
-    std::function<void()> onRelayout;
 };
 
 class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
