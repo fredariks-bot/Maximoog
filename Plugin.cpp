@@ -1623,7 +1623,7 @@ public:
 
             compressor.process(juce::dsp::ProcessContextReplacing<float>(stereoBlock));
 
-            float makeupGain = juce::Decibels::decibelsToGain(*apvts.getRawParameterValue("compMakeup"));
+            float makeupGain = juce::Decibels::decibelsToGain(apvts.getRawParameterValue("compMakeup")->load());
             buffer.applyGain(makeupGain);
         }
 
