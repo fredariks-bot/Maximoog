@@ -1905,63 +1905,68 @@ public:
 
         addAndMakeVisible(wtDisplay);
 
+        static const std::vector<std::pair<juce::String, std::vector<juce::String>>> sectionDefs = {
+            { "VOICE",         { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
+            { "OSC 1",         { "osc1On", "osc1Wave", "osc1Oct", "osc1Detune", "osc1Level" } },
+            { "OSC 2",         { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
+            { "OSC 3",         { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
+            { "WAVETABLE OSC", { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
+            { "MIXER",         { "drive" } },
+            { "FILTER",        { "cutoff", "resonance", "contour" } },
+            { "FILTER ENV",    { "fAttack", "fDecay", "fSustain" } },
+            { "AMP ENV",       { "aAttack", "aDecay", "aSustain", "aRelease" } },
+            { "ARPEGGIATOR",   { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
+            { "COMPRESSOR",    { "compOn", "compThresh", "compRatio", "compAttack", "compRelease", "compMakeup" } },
+            { "DELAY",         { "delayTime", "delayFeedback", "delayMix" } },
+            { "REVERB",        { "revSize", "revDamp", "revMix" } },
+            { "MASTER",        { "masterGain" } }
+        };
+
+        juce::StringArray placed;
+        for (const auto& def : sectionDefs)
+        {
+            Section s;
+            s.title = def.first;
+            s.header = std::make_unique<juce::Label>(juce::String(), def.first);
+            s.header->setFont(juce::Font(juce::FontOptions(12.0f)));
+            s.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
+            addAndMakeVisible(*s.header);
+
+            for (const auto& id : def.second)
+            {
+                if (auto* param = audioProcessor.apvts.getParameter(id))
+                {
+                    addControlToSection(s, param);
+                    placed.add(id);
+                }
+            }
+            sections.push_back(std::move(s));
+        }
+
+        Section other;
         for (auto* param : audioProcessor.getParameters())
         {
             auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
-            if (withID == nullptr || withID->paramID == "wtPreset")
+            if (withID == nullptr || withID->paramID == "wtPreset" || placed.contains(withID->paramID))
                 continue;
 
-            Control c;
-            c.label = std::make_unique<juce::Label>(juce::String(), param->getName(64));
-            c.label->setJustificationType(juce::Justification::centred);
-            c.label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-            c.label->setFont(juce::Font(juce::FontOptions(11.0f)));
-            addAndMakeVisible(*c.label);
-
-            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(param))
+            if (other.header == nullptr)
             {
-                auto combo = std::make_unique<juce::ComboBox>();
-                combo->addItemList(choice->choices, 1);
-                combo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff232730));
-                combo->setColour(juce::ComboBox::textColourId, juce::Colours::lightgrey);
-                combo->setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3a4150));
-                comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-                    audioProcessor.apvts, withID->paramID, *combo));
-                c.comp = std::move(combo);
-                c.isKnob = false;
+                other.title = "OTHER";
+                other.header = std::make_unique<juce::Label>(juce::String(), "OTHER");
+                other.header->setFont(juce::Font(juce::FontOptions(12.0f)));
+                other.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
+                addAndMakeVisible(*other.header);
             }
-            else if (dynamic_cast<juce::AudioParameterBool*>(param) != nullptr)
-            {
-                auto btn = std::make_unique<juce::TextButton>();
-                btn->setClickingTogglesState(true);
-                btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff232730));
-                btn->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2c5e8a));
-                btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-                buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-                    audioProcessor.apvts, withID->paramID, *btn));
-                c.comp = std::move(btn);
-                c.isKnob = false;
-            }
-            else
-            {
-                auto knob = std::make_unique<juce::Slider>();
-                knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-                knob->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-                knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff2c5e8a));
-                knob->setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff3a4150));
-                knob->setColour(juce::Slider::thumbColourId, juce::Colours::white);
-                sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-                    audioProcessor.apvts, withID->paramID, *knob));
-                c.comp = std::move(knob);
-                c.isKnob = true;
-            }
-
-            addAndMakeVisible(*c.comp);
-            controls.push_back(std::move(c));
+            addControlToSection(other, param);
         }
+        if (other.header != nullptr)
+            sections.push_back(std::move(other));
 
+        const int contentBottom = layoutSections(kEditorWidth, 178);
         setResizable(true, true);
-        setSize(620, 1030);
+        setResizeLimits(kEditorWidth, contentBottom + 10, 2000, 3000);
+        setSize(kEditorWidth, contentBottom + 10);
     }
 
     void paint(juce::Graphics& g) override
@@ -1969,6 +1974,14 @@ public:
         g.fillAll(juce::Colour(0xff181b20));
         g.setColour(juce::Colour(0xff232730));
         g.fillRect(0, 0, getWidth(), 168);
+
+        for (const auto& s : sections)
+        {
+            g.setColour(juce::Colour(0xff1f242e));
+            g.fillRoundedRectangle(s.area.toFloat(), 6.0f);
+            g.setColour(juce::Colour(0xff2c3242));
+            g.drawRoundedRectangle(s.area.toFloat(), 6.0f, 1.0f);
+        }
     }
 
     void resized() override
@@ -1984,36 +1997,134 @@ public:
         topPanel.removeFromTop(8);
         wtDisplay.setBounds(topPanel);
 
-        auto grid = area.reduced(10);
-        const int cols = 6;
-        const int cellW = juce::jmax(1, grid.getWidth() / cols);
-        const int rowH = 84;
-        const int ctrlH = 58;
-        const int labelH = 16;
-
-        for (size_t i = 0; i < controls.size(); ++i)
-        {
-            const int col = static_cast<int>(i % cols);
-            const int row = static_cast<int>(i / cols);
-            const int x = grid.getX() + col * cellW;
-            const int y = grid.getY() + row * rowH;
-
-            auto& c = controls[i];
-            if (c.isKnob)
-                c.comp->setBounds(x + 4, y, cellW - 8, ctrlH);
-            else
-                c.comp->setBounds(x + 4, y + (ctrlH - 26) / 2, cellW - 8, 26);
-            c.label->setBounds(x + 4, y + ctrlH + 2, cellW - 8, labelH);
-        }
+        layoutSections(getWidth(), 178);
     }
 
 private:
+    static constexpr int kEditorWidth = 900;
+
     struct Control
     {
         std::unique_ptr<juce::Component> comp;
         std::unique_ptr<juce::Label> label;
         bool isKnob = false;
     };
+
+    struct Section
+    {
+        juce::String title;
+        juce::Rectangle<int> area;
+        std::unique_ptr<juce::Label> header;
+        std::vector<Control> controls;
+    };
+
+    void addControlToSection(Section& s, juce::AudioProcessorParameter* param)
+    {
+        auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
+
+        Control c;
+        c.label = std::make_unique<juce::Label>(juce::String(), param->getName(64));
+        c.label->setJustificationType(juce::Justification::centred);
+        c.label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        c.label->setFont(juce::Font(juce::FontOptions(11.0f)));
+        addAndMakeVisible(*c.label);
+
+        const auto id = withID != nullptr ? withID->paramID : juce::String();
+
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(param))
+        {
+            auto combo = std::make_unique<juce::ComboBox>();
+            combo->addItemList(choice->choices, 1);
+            combo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff232730));
+            combo->setColour(juce::ComboBox::textColourId, juce::Colours::lightgrey);
+            combo->setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3a4150));
+            comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+                audioProcessor.apvts, id, *combo));
+            c.comp = std::move(combo);
+            c.isKnob = false;
+        }
+        else if (dynamic_cast<juce::AudioParameterBool*>(param) != nullptr)
+        {
+            auto btn = std::make_unique<juce::TextButton>();
+            btn->setClickingTogglesState(true);
+            btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff232730));
+            btn->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2c5e8a));
+            btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+                audioProcessor.apvts, id, *btn));
+            c.comp = std::move(btn);
+            c.isKnob = false;
+        }
+        else
+        {
+            auto knob = std::make_unique<juce::Slider>();
+            knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+            knob->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff2c5e8a));
+            knob->setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff3a4150));
+            knob->setColour(juce::Slider::thumbColourId, juce::Colours::white);
+            sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+                audioProcessor.apvts, id, *knob));
+            c.comp = std::move(knob);
+            c.isKnob = true;
+        }
+
+        addAndMakeVisible(*c.comp);
+        s.controls.push_back(std::move(c));
+    }
+
+    int layoutSections(int width, int top)
+    {
+        const int margin = 10;
+        const int gap = 10;
+        const int colW = juce::jmax(200, (width - 2 * margin - gap) / 2);
+        const int colsPerRow = 5;
+        const int rowH = 84;
+        const int ctrlH = 58;
+        const int labelH = 16;
+        const int headerH = 20;
+
+        int colY[2] = { top, top };
+        const int colX[2] = { margin, margin + colW + gap };
+
+        for (auto& s : sections)
+        {
+            const int n = static_cast<int>(s.controls.size());
+            if (n == 0)
+                continue;
+
+            const int rows = (n + colsPerRow - 1) / colsPerRow;
+            const int h = headerH + rows * rowH + 6;
+
+            const int col = (colY[0] <= colY[1]) ? 0 : 1;
+            const int x = colX[col];
+            int y = colY[col];
+
+            s.area = juce::Rectangle<int>(x - 4, y - 4, colW + 8, h + 4);
+            s.header->setBounds(x, y, colW, headerH);
+            y += headerH;
+
+            const int cellW = juce::jmax(1, colW / colsPerRow);
+            for (int i = 0; i < n; ++i)
+            {
+                const int c = i % colsPerRow;
+                const int r = i / colsPerRow;
+                const int cx = x + c * cellW;
+                const int cy = y + r * rowH;
+
+                auto& ctl = s.controls[static_cast<size_t>(i)];
+                if (ctl.isKnob)
+                    ctl.comp->setBounds(cx + 4, cy, cellW - 8, ctrlH);
+                else
+                    ctl.comp->setBounds(cx + 4, cy + (ctrlH - 26) / 2, cellW - 8, 26);
+                ctl.label->setBounds(cx + 4, cy + ctrlH + 2, cellW - 8, labelH);
+            }
+
+            colY[col] = y + rows * rowH + gap;
+        }
+
+        return juce::jmax(colY[0], colY[1]);
+    }
 
     void openWavetableChooser()
     {
@@ -2037,7 +2148,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> presetAttachment;
     juce::TextButton loadBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
-    std::vector<Control> controls;
+    std::vector<Section> sections;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
