@@ -2054,7 +2054,7 @@ public:
         const int n = getNumItems();
         if (n <= 0)
             return;
-        const int dir = (wheel.deltaY > 0.0f) ? 1 : -1;
+        const int dir = (wheel.deltaY > 0.0f) ? -1 : 1;   // Mausrad nach unten = naechster Eintrag
         setSelectedItemIndex(juce::jlimit(0, n - 1, getSelectedItemIndex() + dir),
                              juce::sendNotificationSync);
     }
