@@ -1156,6 +1156,11 @@ public:
         reverb.setSampleRate(sampleRate);
         reverb.reset();
 
+        revSmoothK = 1.0f - std::exp(-(static_cast<double>(samplesPerBlock) / sampleRate) / 0.012);
+        revSizeSm = pp.revSize->load();
+        revDampSm = pp.revDamp->load();
+        revMixSm  = pp.revMix->load();
+
         heldNotes.clear();
         arpCounter = 0.0;
         arpStep = 0;
@@ -1521,27 +1526,30 @@ public:
             }
         }
 
-        // 7. Reverb
-        const float revMix = pp.revMix->load();
-        if (revMix > 0.001f)
+        // 7. Reverb (Parameter pro Block geglaettet -> kein Knistern beim Drehen)
+        revSizeSm += (pp.revSize->load() - revSizeSm) * revSmoothK;
+        revDampSm += (pp.revDamp->load() - revDampSm) * revSmoothK;
+        revMixSm  += (pp.revMix->load()  - revMixSm)  * revSmoothK;
+
+        if (revMixSm > 0.001f)
         {
             juce::Reverb::Parameters rp;
-            rp.roomSize = pp.revSize->load();
-            rp.damping  = pp.revDamp->load();
-            rp.wetLevel = revMix;
-            rp.dryLevel = 1.0f - (revMix * 0.4f);
+            rp.roomSize = revSizeSm;
+            rp.damping  = revDampSm;
+            rp.wetLevel = revMixSm * 0.85f;
+            rp.dryLevel = 1.0f - (revMixSm * 0.35f);
             rp.width    = 1.0f;
             reverb.setParameters(rp);
             reverb.processStereo(leftPtr, rightPtr, numSamples);
         }
 
-        // 8. Master + Safety-Limiter
+        // 8. Master + Safety-Limiter (Soft-Clip via fastTanh statt hartem Clipping -> kein Knistern)
         const float master = pp.masterGain->load();
         for (int ch = 0; ch < 2; ++ch)
         {
             auto* d = buffer.getWritePointer(ch);
             for (int i = 0; i < numSamples; ++i)
-                d[i] = juce::jlimit(-1.0f, 1.0f, d[i] * master);
+                d[i] = fastTanh(d[i] * master);
         }
     }
 
@@ -1689,6 +1697,8 @@ private:
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineL;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineR;
     juce::Reverb reverb;
+    float revSizeSm = 0.78f, revDampSm = 0.35f, revMixSm = 0.38f;
+    float revSmoothK = 0.0f;
 
     std::vector<int> heldNotes, arpSorted, arpPattern;
     double arpCounter = 0.0;
