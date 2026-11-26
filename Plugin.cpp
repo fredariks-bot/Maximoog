@@ -1994,14 +1994,14 @@ private:
 class WheelComboBox : public juce::ComboBox
 {
 public:
-    void mouseWheelMove(const juce::MouseEvent& e) override
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
     {
-        if (e.deltaY == 0.0f)
+        if (wheel.deltaY == 0.0f)
             return;
         const int n = getNumItems();
         if (n <= 0)
             return;
-        const int dir = (e.deltaY > 0.0f) ? 1 : -1;
+        const int dir = (wheel.deltaY > 0.0f) ? 1 : -1;
         setSelectedItemIndex(juce::jlimit(0, n - 1, getSelectedItemIndex() + dir),
                              juce::sendNotificationSync);
     }
