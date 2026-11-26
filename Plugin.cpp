@@ -1,365 +1,75 @@
-
-Gemini
-Neuer Chat
-Mediathek
-Bilder
-Geplant
-Schüler*innen/Studierende
-
-Mehr
-Neues Notebook
-MiniMoog-inspirierter Web-Synthesizer
-VST-Clipper-Plugin Entwicklung starten
-TLA-100A VST-Plugin C++ Quellcode
-Summit Audio TLA-100A Kompressor
-Bewertung des Finanz- und Anlageplans
-Sparkassen-Depotmodelle und Kosten im Überblick
-Windows 11 ohne Microsoft-Konto einrichten
-Sparkassen Festgeld
-CFS/POTS-Symptome für Schwerbehindertenantrag beschreiben
-Rezept für Bulletproof Coffee
-MacBook Akku lädt nicht auf 80%
-Targeted Individuals: Mechanismen und Begriffe
-Plugin Refund Request Email Draft
-Request For English Message Details
-Alkoholbedingte Todesfälle: Zahlen und Fakten
-Star Compressor: Nützlichkeit und Einstellungen
-Ableton Plug-in Einstellungen für Mac
-Sicherheitsrichtlinien auf Mac finden
-Kompressor-Einstellungen: Ein Überblick
-Master-Ringketten: Einsatz, Güteklassen, Sicherheit
-Mastering Kompressor App mit Einstellungen
-ToTape8: Bandemulation mit Dubly erklärt
-Buena Vista Social Club Prompts für Suno
-Master Plan für Kuba-Songs
-Mastering Social Club
-Paralleler Master Track in Ableton Live
-Hall-Effekte für Raumtiefe und Distanz
-Plattencover Erstellung Auf Anfrage
-V2K und Elektronische Belästigung
-Rote Augen Entfernung Aus Foto
-PEMF-Therapie in Russland
-Infraschall: Nachbarschaftskonflikte und rechtliche Aspekte
-VST3-LUFS-Meter-Implementierung nach ITU-R BS.1770
-
-Aktivitäten
-Heidelberg, Deutschland
-Basierend auf deinen Orten (Zuhause)
-Unterhaltung mit Gemini
-Kannst du noch einen Kompressor-Effekt hinzufügen?
-
-Ich integriere dafür die juce::dsp::Compressor-Klasse in deine Prozesskette. Platziere sie am besten direkt hinter dem Filter und vor den Raumeffekten, um die Dynamik des Synth-Signals zu zähmen und den Punch vor dem Limiting zu maximieren. Setze dafür Parameter wie Threshold und Ratio scharf ein, um unerwünschte Pegelspitzen effektiv abzufangen.
-
-Kannst du wirklich darauf achten, dass die Oszillatoren die höchste Qualitätsstufe haben?
-
-Um Aliasing bei hohen Frequenzen zu eliminieren, integriere ich exakte PolyBLEP (Polynomial Band-Limited Step) Korrekturen direkt in die Oszillen-Schleife.
-
-Dadurch werden die steilen Flanken der Sägezahnwellen mathematisch geglättet, was unerwünschte Spiegelfrequenzen im hörbaren Bereich verhindert und für den kristallklaren, druckvollen Analog-Klang sorgt.
-
-C++
-// Beispiel für bandbegrenzten Sägezahn (PolyBLEP)
-float renderPolyBLEPSaw(double phase, double increment)
-{
-    float t = static_cast<float>(phase / (2.0 * M_PI));
-    float sample = 2.0f * t - 1.0f; // Standard Sägezahn
-
-    // PolyBLEP Korrektur für den Sprung bei Phase 0
-    if (t < increment)
-    {
-        t /= static_cast<float>(increment);
-        sample += t * t - 2.0f * t + 1.0f;
-    }
-    else if (t > 1.0f - increment)
-    {
-        t = (t - 1.0f) / static_cast<float>(increment);
-        sample -= t * t + 2.0f * t + 1.0f;
-    }
-
-    return sample;
-}
-Du kannst diesen optimierten Algorithmus direkt in deine renderOscillators-Funktion einbauen, um maximale Klangtreue zu garantieren.
-
-Kannst du mir alle Files noch mal komplett erstellen, damit ich sie auf GitHub hochladen kann?
-
-Deine fertigen Projektdateien für GitHub sind erstellt:
-
-Komplettpaket (inkl. .github/workflows/build.yml):
-
-ZIP-Symbol
-ModelD3Synth-GitHub-Ready
- ZIP 
-Einzeldateien (falls du sie separat anlegen möchtest):
-
-Plugin.cpp: 
-
-CPP-Symbol
-ModelD3Synth/Plugin
- CPP 
-CMakeLists.txt: 
-
-TXT-Symbol
-ModelD3Synth/CMakeLists
- TXT 
-Enthaltene DSP-Architektur im Plugin.cpp
-3 Anti-Aliased Oszillatoren: Exakte PolyBLEP-Korrektur für Sägezahn, Rechteck, Puls (25 %) und bandbegrenztes Dreieck – zusätzlich gerendert mit 4x Polyphase-IIR-Oversampling (juce::dsp::Oversampling), um Aliasing bei hohen Frequenzen und starkem Drive komplett auszuschließen. Jeder Oszillator bietet eigene Fußlagen (32' bis 2'), Cent-Verstimmung und Pegel.
-
-Analog-Mixer & Ladder-Filter: tanh-Sättigungsstufe vor einem resonanten 24 dB/Oktave Ladder-Filter (juce::dsp::LadderFilterMode::LPF24) mit eigener schneller Contour-Hüllkurve sowie schneller VCA-Hüllkurve (ab 1–2 ms Attack).
-
-Host-synchroner Arpeggiator: Liest das DAW-Tempo automatisch über AudioPlayHead aus, unterstützt 1/4, 1/8, 1/8T, 1/16, 1/32, Modi (Up, Down, Up/Down), Oktavbereich (1–3) und Gate-Länge.
-
-Effektkette: Seriell geschalteter VCA-Kompressor (Threshold, Ratio, Attack, Release, Makeup), Stereo-Cross-Feedback-Delay und Stereo-Reverb mit anschließendem Master-Safety-Limiter.
-
-DAW-Integration: Vollständige Preset-/State-Speicherung via AudioProcessorValueTreeState (APVTS).
-
-Upload auf GitHub
-Entpacke ModelD3Synth-GitHub-Ready.zip lokal in einen Ordner.
-
-Lade die darin enthaltenen Dateien (CMakeLists.txt, Plugin.cpp und den versteckten Ordner .github/workflows/build.yml) in dein GitHub-Repository hoch.
-
-Unter Actions startet GitHub automatisch den Windows-x64-Build und stellt dir Model D-3 Synth.vst3 als fertiges Artefakt zum Download bereit.
-
-Kannst du noch einbauen, dass die Oszillatoren so ein leichtes Driften haben, wie eben originale Analog-Synthesizer haben?
-
-Deine aktualisierten GitHub-Dateien mit analogem Oszillator-Drift sind fertig:
-
-Komplettpaket (inkl. .github/workflows/build.yml):
-
-ZIP-Symbol
-ModelD3Synth-GitHub-Ready-v2
- ZIP 
-Aktualisierte Einzeldateien:
-
-Plugin.cpp: 
-
-CPP-Symbol
-ModelD3Synth_v2/Plugin
- CPP 
-CMakeLists.txt: 
-
-TXT-Symbol
-ModelD3Synth_v2/CMakeLists
- TXT 
-So funktioniert das analoge Driften (AnalogDriftGenerator)
-Drei unabhängige Drift-Instanzen: Jeder der drei Oszillatoren besitzt einen eigenen Zufallsgenerator mit individuellem Seed und leicht unterschiedlicher Bauteil-Toleranz (0.85x, 1.05x, 1.20x), damit sich die Oszillatoren wie echte diskrete VCOs minimal gegeneinander bewegen.
-
-Zweistufiger Ornstein-Uhlenbeck Random Walk: Kombiniert eine sehr langsame thermische Drift-Komponente (~0,18 Hz) mit einer feinen Spannungs-Instabilität (~2,4 Hz). Durch die Rückstellkraft (Mean-Reverting) schweben die Oszillatoren organisch und lebendig, ohne jemals komplett aus der Stimmung zu laufen.
-
-Neuer Parameter Analog Drift (ct): Regelbar von 0.0 bis 25.0 Cents (Standardwert 4.5 Cents für warme, lebendige Schwebungen direkt ab Start).
-
-Kannst du noch einen Wavetable-Oszillator hinzufügen, wo man Wavetables im WAV-Format laden kann?
-
-Deine aktualisierten GitHub-Projektdateien mit integriertem Wavetable-Oszillator und WAV-Loader sind erstellt:
-
-Komplettpaket (inkl. .github/workflows/build.yml):
-
-ZIP-Symbol
-ModelD3Synth-GitHub-Ready-v3
- ZIP 
-Aktualisierte Einzeldateien:
-
-Plugin.cpp: 
-
-CPP-Symbol
-ModelD3Synth_v3/Plugin
- CPP 
-CMakeLists.txt: 
-
-TXT-Symbol
-ModelD3Synth_v3/CMakeLists
- TXT 
-Neuerungen im Wavetable-Oszillator (WavetableOscillator)
-WAV-Import & Format-Erkennung: Über den neuen Button „Load Wavetable (.WAV)...“ oben im Plugin-Fenster kannst du beliebige .wav-Dateien laden. Standard-Multi-Frame-Wavetables (2048 Samples pro Frame, wie aus Serum oder Vital) werden direkt in bis zu 256 Frames zerlegt; Single-Cycle-Wellenformen oder freie Audio-Snippets werden automatisch normalisiert und auf 2048-Sample-Frames resampelt.
-
-2D-Morphing & Cubic-Hermite-Interpolation: Stufenloses Überblenden zwischen den einzelnen Frames über WT Position sowie optionale Hüllkurven-Modulation über WT Env Mod (gekoppelt an die Filter-Hüllkurve) bei voller 4x-Oversampling-Qualität.
-
-Eigene Tuning- & Drift-Kontrolle: Eigene Parameter für WT Osc On, WT Osc Octave (32' bis 2'), WT Osc Detune, WT Osc Level sowie subtiler analoger Drift. Der Pfad der geladenen WAV-Datei wird zudem im DAW-Projekt gespeichert (getStateInformation / setStateInformation).
-
-Kannst du noch eine Unisono-Funktion einfügen für den ganzen Synthesizer, also bis zu sieben Stimmen gleichzeitig spielbar sind, die man gegeneinander verstimmen kann?
-
-Deine aktualisierten GitHub-Dateien mit der globalen 7-Stimmen-Unisono-Engine sind erstellt:
-
-Komplettpaket (inkl. .github/workflows/build.yml):
-
-ZIP-Symbol
-ModelD3Synth-GitHub-Ready-v4
- ZIP 
-Aktualisierte Einzeldateien:
-
-Plugin.cpp: 
-
-CPP-Symbol
-ModelD3Synth_v4/Plugin
- CPP 
-CMakeLists.txt: 
-
-TXT-Symbol
-ModelD3Synth_v4/CMakeLists
- TXT 
-Aufbau der Unisono-Engine (SynthVoice)
-Bis zu 7 komplette Synth-Stimmen (Unison Voices: 1–7): Jede Unisono-Stimme berechnet den gesamten Oszillator-Block (alle 3 PolyBLEP-Analog-Oszillatoren + den WAV-Wavetable-Oszillator) mit eigenen freilaufenden Startphasen und eigenem analogen Drift-Generator – bei 7 Stimmen laufen also bis zu 28 Oszillatoren gleichzeitig im 4x-Oversampling.
-
-Symmetrisches Detuning (Unison Detune (ct)): Verteilt die Stimmen von 0 bis 60 Cents symmetrisch um die Zieltonhöhe mit leichter nicht-linearer Kennlinie für dichte, schwebende Analog-Leads und Supersaw-ähnliche Bässe.
-
-Stereo-Panorama & Dual-Mono-Filter (Unison Stereo Spread): Verteilt die Unisono-Stimmen per Equal-Power-Panning im Stereofeld, führt sie durch eine Stereo-Sättigungsstufe und anschließend durch zwei parallele 24 dB Ladder-Filter (Links/Rechts), damit die volle Stereobreite ohne Phasenauslöschungen erhalten bleibt (inklusive automatischer Lautstärkekompensation 
-1
-/
-N
-1/ 
-N
-
-​
- ).
-
-Kannst du mir noch mal eine Vorschau erstellen, wo ich das testen kann?
-
-Ich werde dir nun eine voll funktionsfähige, interaktive Web-Audio-Vorschau des Model D-3 v1.3.0 Synthesizers direkt im Browser erstellen – inklusive 7-Stimmen-Unisono, analogem VCO-Drift, WAV-Wavetable-Importer, Arpeggiator mit Latch-Funktion, 24dB Dual-Mono Ladder-Filter, VCA-Kompressor, Stereo-Delay und Reverb.
-
-Model D-3 v1.3.0 Web-Synthesizer Vorschau
-25. Nov., 10:25
-Der Synthesizer soll mehrstimmig zu spielen sein, sodass man auch Akkorde spielen kann. Und beim Wavetable-Oszillator sollte ein Fenster sein, wo man das jeweilige Wavetable in der 2D-Ansicht sehen kann. Und es sollten ungefähr 30 Wavetables schon vorhanden sein zur Vorauswahl.
-
-Die aktualisierte Version Model D-3 Synth v2.0.0 mit 8-stimmiger Polyphonie, 30 integrierten Wavetables und einem 2D-Wavetable-Display ist bereit.
-
-Komplettpaket (inkl. .github/workflows/build.yml):
-
-ZIP-Symbol
-ModelD3Synth-GitHub-Ready-v5
- ZIP 
-Aktualisierte Einzeldateien:
-
-Plugin.cpp: 
-
-CPP-Symbol
-ModelD3Synth_v5/Plugin
- CPP 
-CMakeLists.txt: 
-
-TXT-Symbol
-ModelD3Synth_v5/CMakeLists
- TXT 
-Die wichtigsten Neuerungen in v2.0.0
-8-stimmige Polyphonie (Polyphony Voices: 1–8): Du kannst jetzt volle Akkorde spielen. Jede polyphone Stimme besitzt ihre eigene Hüllkurve, eigene Dual-Mono-24dB-Ladder-Filter (damit jeder Akkordton seine eigene Filter-Kontur durchläuft) sowie bis zu 7 Unisono-Sub-Stimmen (insgesamt bis zu 56 komplette Synth-Instanzen mit Voice-Stealing für die älteste Note). Stellst du Polyphony Voices auf 1, verhält sich der Synth wieder wie ein klassischer Monosynth mit Last-Note-Priority und Legato-Glide.
-
-2D-Wavetable-Display (Wavetable2DDisplay): Im oberen Bereich des Plugin-Fensters wird die gewählte Wavetable in Echtzeit mit 30 FPS dargestellt. Alle 64 Frames liegen als leicht versetzter 2D-Stapel im Hintergrund, während der aktuell über WT Position oder WT Env Mod modulierte Frame in Bernstein hervorgehoben wird.
-
-30 integrierte Wavetables (WT Preset) + WAV-Loader: Über das Dropdown-Menü direkt über dem Display stehen sofort 30 verschiedene Wavetables mit jeweils 64 Frames (2048 Samples pro Frame) bereit – von klassischen Analog-Sweeps (MiniMoog Ladder Sweep, OB-X Brass, Prophet Sync) über FM-Klänge (FM Electric Piano, FM Cyber Growl), Formanten (Vocal Formant A-E-I-O-U, Choir Pad) und Wavefolder bis zu Spektral- und Ringmodulator-Tables. Eigene .wav-Dateien lassen sich weiterhin über Load .WAV... laden (Eintrag 31).
-
-Wenn du möchtest, erstelle ich dir dazu auch direkt wieder eine aktualisierte interaktive HTML/JS-Vorschau zum Testen im Browser.
-
-Ja
-
-Ich erstelle jetzt die interaktive Web-Audio-Vorschau für den Model D-3 Synth v2.0.0 im klaren KITESSE Studio-Hardware-Design – komplett mit 8-stimmiger Polyphonie, 7-Stimmen-Unisono pro Stimme, 2D-Wavetable-Display, allen 30 integrierten Wavetables, .WAV-Importer, 24dB Ladder-Filter, Arpeggiator, Stereo-Effekten und 3-Oktaven-QWERTZ/MIDI-Keyboard.
-
-Model D-3 Synth v2.0.0 – KITESSE Web-Audio Vorschau
-25. Nov., 10:46
-Die interaktive Model D-3 Synth v2.0.0 Web-Audio-Vorschau ist jetzt im Editor bereit. Klicke oben rechts auf Preview, um den Synthesizer direkt zu testen:
-
-Akkorde & Unisono sofort hören: Klicke unten links auf TEST CHORD (Dm9) – dadurch wird ein 5-stimmiger Akkord gehalten, während du oben die Polyphonie (1–8), die Unisono-Stimmen (1–7) sowie Detune und Stereo Spread live verändern kannst.
-
-2D-Wavetable & 30 Presets: Schalte im Modul Wavetable Oszillator den blauen Kippschalter ein, wähle eine der 30 integrierten Wavetables (oder lade eine eigene .WAV-Datei) und bewege WT Pos oder Env Mod, um den aktiven Frame (Bernstein) vor dem blauen 2D-Frame-Stapel zu morphen.
-
-Tastatur & MIDI: Spiele über das 3-Oktaven-Keyboard (C2–C5), deine PC-Tastatur (QWERTZ: Y–M für C2–B2, A–Ä für C3–F4) oder ein angeschlossenes USB-MIDI-Keyboard.
-
-Die Wavetables sollen sich vor allem für Pad-Sounds eignen.
-
-Ich passe die 50 Wavetables und die 100 Synthesizer-Presets jetzt gezielt auf warme, atmosphärische und sich organisch entwickelnde Pad-Sounds an – inklusive der aktualisierten C++-VST3-Dateien für GitHub und der interaktiven Web-Audio-Vorschau.
-
-Dabei ersetzt die neue Wavetable-Bank harsche, metallische oder bitgecrushte Tabellen durch bandbegrenzte, obertonreiche und samtige Morphing-Strukturen (z. B. Solina String Ensemble, CS-80 Brass Swell, OB-Xa Warm Velvet, PPG Glass Choir, Bowed Glass Harmonics, Tape Choir Mellotron, Warm Sub-Octave Pad und Analog Drift Ensemble).
-
-1. Aktualisiertes C++ VST3-Paket (v2.1.0 – Pad-Edition + WT-LFO + 50 Wavetables)
-Ich werde die Model D-3 Synth v2.1.0 — Pad Edition Web-Audio-Anwendung mit den 50 harmonisch weichen Pad-Wavetables, 100 Pad-fokussierten Presets, dediziertem Wavetable-LFO, Echtzeit-2D-Wavetable-Visualizer, 8-stimmiger Polyphonie und 7-Stimmen-Unisono aufbauen.
-
-Model D-3 Synth v2.1.0 — Pad Edition
-
-
-
-Die Model D-3 Synth v2.1.0 — Pad Edition ist bereit. Über die Preview-Schaltfläche kannst du direkt loslegen:
-
-Sofort testen: Klicke unten links auf TEST CHORD (Dm9), um den 5-stimmigen Pad-Akkord (D3–F3–A3–C4–E4) dauerhaft zu halten, und schalte oben durch die 100 Presets (001–075 reine Pads, Chöre, Streicher & Ambient-Texturen, 076–100 Keys, Leads, Bässe & Arpeggios).
-
-50 Pad-Wavetables & WT-LFO: Alle 50 Wavetables sind bandlimitiert und spektral weich für Flächensounds aufgebaut (Solina String Ensemble, CS-80 Velvet Brass Swell, OB-Xa Warm Analog Pad, Mellotron Tape Choir, PPG Wave 2.2 Crystal Pad, Arctic Aurora Shimmer u. v. m.). Der WT-LFO (Sine, Tri, Saw Up, Saw Dn, Smth S&H) moduliert die Wavetable-Position kontinuierlich im 2D-Display.
-
-Kannst du mir nochmal die Dateien erstellen, die ich bei GitHub hochladen soll?
-
-Deine GitHub-Build-Dateien für den Model D-3 Synth v2.1.0 (Pad-Edition mit WT-LFO & 50 Wavetables) sind bereit:
-
-ZIP-Symbol
-ModelD3Synth-GitHub-Ready-v2
- ZIP 
-CPP-Symbol
-ModelD3Synth_v6_1/Plugin
- CPP 
-TXT-Symbol
-ModelD3Synth_v6_1/CMakeLists
- TXT 
-Enthaltene Dateien & Upload-Anleitung für GitHub
-Am einfachsten entpackst du ModelD3Synth-GitHub-Ready-v2.zip und ziehst den Inhalt direkt per Drag-and-Drop in dein GitHub-Repository (damit der versteckte Ordner .github/workflows/build.yml exakt an der richtigen Stelle landet):
-
-CMakeLists.txt (Hauptverzeichnis): Konfiguriert JUCE 8.0.4 und das Windows-VST3-Target (Model D-3 Synth.vst3).
-
-Plugin.cpp (Hauptverzeichnis): Enthält die komplette C++-DSP-Engine inkl. 8-stimmiger Polyphonie, 7-Stimmen-Unisono, 50 Pad-Wavetables, dediziertem Wavetable-LFO, .WAV-Loader, 24dB Ladder-Filter, Arpeggiator, Effekten und 2D-Wavetable-Display.
-
-.github/workflows/build.yml (im ZIP enthalten): Kompiliert das Windows-VST3-Plugin bei jedem Push automatisch über GitHub Actions und stellt es unter Actions → Artifacts als Model-D-3-Synth-Windows-VST3 zum Download bereit.
-
-
-
-
-
-Gemini ist eine KI und kann Fehler machen, auch bei Informationen über Personen. Datenschutz und GeminiWird in einem neuen Fenster geöffnet
-
-Wird analysiert
-#include <JuceHeader.h>
+// ==============================================================================
+// Model D-3 Synth  -  v2.2.0  (CPU-optimiert, schnellere Huellkurven & Filter)
+// Oversampling (2x, Max-Quality Polyphase-IIR) bleibt unveraendert aktiv.
+// ==============================================================================
+#include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_dsp/juce_dsp.h>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include <algorithm>
-#include <random>
 #include <memory>
 #include <array>
+#include <atomic>
+
+namespace
+{
+    // Schnelle tanh-Naeherung (Pade), exakt 1.0 bei |x| = 3
+    inline float fastTanh(float x) noexcept
+    {
+        x = juce::jlimit(-3.0f, 3.0f, x);
+        const float x2 = x * x;
+        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    }
+
+    // Controlrate-Chunk (in Samples des Oversampling-Raums): Drift, Pitch, WT-Morph
+    constexpr int kChunk = 32;
+}
 
 // ==============================================================================
-// Analog Thermal & VCO Pitch Drift Generator (Ornstein-Uhlenbeck Random Walk)
+// Analog Drift (Ornstein-Uhlenbeck) - laeuft jetzt nur noch mit Controlrate
+// und nutzt einen billigen xorshift-Generator statt mt19937 + normal_distribution
 // ==============================================================================
 class AnalogDriftGenerator
 {
 public:
-    void prepare(double sampleRate, uint32_t seed)
+    void prepare(double controlRate, uint32_t seed)
     {
-        rng.seed(seed);
-        dist = std::normal_distribution<double>(0.0, 1.0);
-
-        slowAlpha = 1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi * 0.16 / sampleRate);
-        fastAlpha = 1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi * 2.10 / sampleRate);
-
-        slowState = dist(rng) * 0.35;
-        fastState = 0.0;
+        state = (seed * 2654435761u) | 1u;
+        const double twoPi = juce::MathConstants<double>::twoPi;
+        slowAlpha = static_cast<float>(1.0 - std::exp(-twoPi * 0.16 / controlRate));
+        fastAlpha = static_cast<float>(1.0 - std::exp(-twoPi * 2.10 / controlRate));
+        slowSigma = std::sqrt(2.0f * slowAlpha) * 0.45f;
+        fastSigma = std::sqrt(2.0f * fastAlpha) * 0.25f;
+        slowState = noise() * 0.35f;
+        fastState = 0.0f;
     }
 
-    double getNextDriftCents(double maxCents)
+    float next(float maxCents) noexcept
     {
-        if (maxCents <= 0.0001)
-            return 0.0;
+        if (maxCents <= 0.0001f)
+            return 0.0f;
 
-        double w1 = dist(rng);
-        double w2 = dist(rng);
-
-        slowState += slowAlpha * (-slowState) + std::sqrt(2.0 * slowAlpha) * 0.45 * w1;
-        fastState += fastAlpha * (-fastState) + std::sqrt(2.0 * fastAlpha) * 0.25 * w2;
-
-        double combined = juce::jlimit(-1.5, 1.5, slowState * 0.80 + fastState * 0.20);
-        return combined * maxCents;
+        slowState += slowAlpha * (-slowState) + slowSigma * noise();
+        fastState += fastAlpha * (-fastState) + fastSigma * noise();
+        return juce::jlimit(-1.5f, 1.5f, slowState * 0.80f + fastState * 0.20f) * maxCents;
     }
 
 private:
-    std::mt19937 rng { 42 };
-    std::normal_distribution<double> dist { 0.0, 1.0 };
-    double slowAlpha = 0.00001;
-    double fastAlpha = 0.0001;
-    double slowState = 0.0;
-    double fastState = 0.0;
+    // Gleichverteilt, Varianz 1
+    float noise() noexcept
+    {
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        return static_cast<float>(static_cast<int32_t>(state)) * (1.7320508f / 2147483648.0f);
+    }
+
+    uint32_t state = 1u;
+    float slowAlpha = 0.0f, fastAlpha = 0.0f, slowSigma = 0.0f, fastSigma = 0.0f;
+    float slowState = 0.0f, fastState = 0.0f;
 };
 
 // ==============================================================================
-// Dedicated Wavetable LFO Generator (Smooth & Organic Pad Modulation)
+// Wavetable LFO (blockweise)
 // ==============================================================================
 class WavetableLFO
 {
@@ -373,19 +83,12 @@ public:
         uniDist = std::uniform_real_distribution<float>(-1.0f, 1.0f);
     }
 
-    void reset()
-    {
-        phase = 0.0;
-        shCurrent = 0.0f;
-        shTarget = 0.0f;
-    }
+    void reset() { phase = 0.0; shCurrent = 0.0f; shTarget = 0.0f; }
 
     float processBlock(int numSamples, float rateHz, int waveType)
     {
         if (sr <= 0.0) return 0.0f;
-        double inc = (static_cast<double>(rateHz) * static_cast<double>(numSamples)) / sr;
-        double prevPhase = phase;
-        phase += inc;
+        phase += (static_cast<double>(rateHz) * static_cast<double>(numSamples)) / sr;
 
         if (phase >= 1.0)
         {
@@ -394,123 +97,84 @@ public:
                 shTarget = uniDist(rng);
         }
 
-        // Glättung für S&H, damit bei Pads keine harten Klicks entstehen
         shCurrent += (shTarget - shCurrent) * 0.15f;
 
         const double twoPi = juce::MathConstants<double>::twoPi;
         switch (waveType)
         {
-            case Sine:
-                return static_cast<float>(std::sin(phase * twoPi));
-            case Triangle:
-                return static_cast<float>(1.0 - 4.0 * std::abs(std::round(phase - 0.25) - (phase - 0.25)));
-            case SawUp:
-                return static_cast<float>(2.0 * phase - 1.0);
-            case SawDown:
-                return static_cast<float>(1.0 - 2.0 * phase);
-            case SampleAndHold:
-            default:
-                juce::ignoreUnused(prevPhase);
-                return shCurrent;
+            case Sine:     return static_cast<float>(std::sin(phase * twoPi));
+            case Triangle: return static_cast<float>(1.0 - 4.0 * std::abs(std::round(phase - 0.25) - (phase - 0.25)));
+            case SawUp:    return static_cast<float>(2.0 * phase - 1.0);
+            case SawDown:  return static_cast<float>(1.0 - 2.0 * phase);
+            default:       return shCurrent;
         }
     }
 
 private:
-    double sr = 44100.0;
-    double phase = 0.0;
-    float shCurrent = 0.0f;
-    float shTarget = 0.0f;
+    double sr = 44100.0, phase = 0.0;
+    float shCurrent = 0.0f, shTarget = 0.0f;
     std::mt19937 rng { 918273 };
     std::uniform_real_distribution<float> uniDist { -1.0f, 1.0f };
 };
 
 // ==============================================================================
-// High-Precision PolyBLEP + Oversampled Analog Oscillator
+// PolyBLEP-Oszillator (Phaseninkrement wird von aussen pro Chunk gesetzt)
 // ==============================================================================
 class PolyBLEPOscillator
 {
 public:
     enum Waveform { Saw = 0, Triangle, Square, PulseWide };
 
-    void setSampleRate(double sr) { sampleRate = sr; }
-    void reset(double initialPhase = 0.0)
-    {
-        phase = initialPhase - std::floor(initialPhase);
-        lastOutput = 0.0f;
-    }
+    void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); lastOutput = 0.0f; }
+    void setPhaseInc(double inc) noexcept { phaseInc = juce::jlimit(1.0e-4, 0.48, inc); }
+    void setWaveform(int wf) noexcept { waveform = wf; }
 
-    void setFrequency(double freq)
+    inline float processSample() noexcept
     {
-        frequency = juce::jlimit(10.0, sampleRate * 0.48, freq);
-        phaseInc = frequency / sampleRate;
-    }
-
-    void setWaveform(int wf) { waveform = wf; }
-
-    float processSample()
-    {
-        double t = phase;
-        double dt = phaseInc;
-        float out = 0.0f;
+        const double t = phase;
+        const double dt = phaseInc;
+        float out;
 
         if (waveform == Saw)
         {
-            out = static_cast<float>(2.0 * t - 1.0);
-            out -= static_cast<float>(polyBLEP(t, dt));
+            out = static_cast<float>(2.0 * t - 1.0 - polyBLEP(t, dt));
         }
         else if (waveform == Square || waveform == PulseWide)
         {
-            double pw = (waveform == Square) ? 0.5 : 0.25;
-            out = (t < pw) ? 1.0f : -1.0f;
-            out += static_cast<float>(polyBLEP(t, dt));
-            double t2 = std::fmod(t + (1.0 - pw), 1.0);
-            out -= static_cast<float>(polyBLEP(t2, dt));
+            const double pw = (waveform == Square) ? 0.5 : 0.25;
+            double t2 = t + (1.0 - pw);
+            if (t2 >= 1.0) t2 -= 1.0;
+            out = ((t < pw) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dt) - polyBLEP(t2, dt));
         }
         else
         {
-            float sq = (t < 0.5) ? 1.0f : -1.0f;
-            sq += static_cast<float>(polyBLEP(t, dt));
-            double t2 = std::fmod(t + 0.5, 1.0);
-            sq -= static_cast<float>(polyBLEP(t2, dt));
-
+            double t2 = t + 0.5;
+            if (t2 >= 1.0) t2 -= 1.0;
+            const float sq = ((t < 0.5) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dt) - polyBLEP(t2, dt));
             lastOutput = static_cast<float>(4.0 * dt * sq + (1.0 - 4.0 * dt) * lastOutput);
             out = juce::jlimit(-1.0f, 1.0f, lastOutput * 1.15f);
         }
 
         phase += phaseInc;
-        if (phase >= 1.0)
-            phase -= 1.0;
-
+        if (phase >= 1.0) phase -= 1.0;
         return out;
     }
 
 private:
-    static double polyBLEP(double t, double dt)
+    static inline double polyBLEP(double t, double dt) noexcept
     {
-        if (dt <= 0.0) return 0.0;
-        if (t < dt)
-        {
-            t /= dt;
-            return t + t - t * t - 1.0;
-        }
-        else if (t > 1.0 - dt)
-        {
-            t = (t - 1.0) / dt;
-            return t * t + t + t + 1.0;
-        }
+        if (t < dt)            { t /= dt;            return t + t - t * t - 1.0; }
+        if (t > 1.0 - dt)      { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
         return 0.0;
     }
 
-    double sampleRate = 44100.0;
-    double frequency = 440.0;
-    double phase = 0.0;
-    double phaseInc = 0.01;
+    double phase = 0.0, phaseInc = 0.01;
     float lastOutput = 0.0f;
     int waveform = Saw;
 };
 
 // ==============================================================================
-// Wavetable Data & 50 Pad-Focused Built-In Preset Wavetables + WAV Loader
+// Wavetable Data, 50 Pad-Wavetables (lazy erzeugt) + WAV Loader
 // ==============================================================================
 struct WavetableData
 {
@@ -527,57 +191,23 @@ public:
     static juce::StringArray getPresetNames()
     {
         return {
-            "01: Solina String Ensemble",
-            "02: CS-80 Velvet Brass Swell",
-            "03: OB-Xa Warm Analog Pad",
-            "04: Juno-106 Chorus Silk",
-            "05: Prophet-5 Warm Saw-Tri",
-            "06: Jupiter-8 Lush Strings",
-            "07: MiniMoog Soft Ladder Bloom",
-            "08: PWM Creamy Ribbon Pad",
-            "09: Dual-Detuned Analog Drift",
-            "10: Warm Sub-Octave Pillow",
-            "11: Mellotron Tape Choir",
-            "12: Cathedral Angelic Choir",
-            "13: Vowel Formant A-O-U Morph",
-            "14: Breath & Air Silk Pad",
-            "15: Whispering Formant Cloud",
-            "16: Soprano & Alto Blend",
-            "17: Ethereal Glass Harmonics",
-            "18: PPG Wave 2.2 Crystal Pad",
-            "19: Frozen Ice Bell Shimmer",
-            "20: Celestial Harp Harmonics",
-            "21: Shimmering Octave Mist",
-            "22: Warm Rhodes Tine Pad",
-            "23: DX7 Soft Sine Bloom",
-            "24: FM Velvet Electric Pad",
-            "25: FM Warm Bell Atmosphere",
-            "26: Bowed Cello Section",
-            "27: Chamber Strings Adagio",
-            "28: Warm French Horn Swell",
-            "29: Bass Clarinet & Woodwind",
-            "30: Bowed Glass & Waterphone",
-            "31: Hammond Warm Drawbars",
-            "32: Pipe Organ Flutes 8'+4'",
-            "33: Soft Reed Harmonium",
-            "34: Octave Fifths Cathedral",
-            "35: Warm Tape Saturation Morph",
-            "36: Even-Harmonic Tube Glow",
-            "37: Chebyshev Silk Overtones",
-            "38: West-Coast Soft Wavefold",
-            "39: Phase-Shift Warm Cloud",
-            "40: Spectral Comb Breeze",
-            "41: Golden Ratio Harmonics",
-            "42: Fibonacci Overtones Pad",
-            "43: Sub-Fifths Ambient Drone",
-            "44: Deep Space Nebula Morph",
-            "45: Analog Horizon Sunrise",
-            "46: Arctic Aurora Shimmer",
-            "47: Velvet Night Nocturne",
-            "48: Liquid Silk Chorus Wave",
-            "49: Dreamy Lo-Fi Tape Pad",
-            "50: Cosmic Evolving Symphony",
-            "51: [Custom Loaded WAV]"
+            "01: Solina String Ensemble", "02: CS-80 Velvet Brass Swell", "03: OB-Xa Warm Analog Pad",
+            "04: Juno-106 Chorus Silk", "05: Prophet-5 Warm Saw-Tri", "06: Jupiter-8 Lush Strings",
+            "07: MiniMoog Soft Ladder Bloom", "08: PWM Creamy Ribbon Pad", "09: Dual-Detuned Analog Drift",
+            "10: Warm Sub-Octave Pillow", "11: Mellotron Tape Choir", "12: Cathedral Angelic Choir",
+            "13: Vowel Formant A-O-U Morph", "14: Breath & Air Silk Pad", "15: Whispering Formant Cloud",
+            "16: Soprano & Alto Blend", "17: Ethereal Glass Harmonics", "18: PPG Wave 2.2 Crystal Pad",
+            "19: Frozen Ice Bell Shimmer", "20: Celestial Harp Harmonics", "21: Shimmering Octave Mist",
+            "22: Warm Rhodes Tine Pad", "23: DX7 Soft Sine Bloom", "24: FM Velvet Electric Pad",
+            "25: FM Warm Bell Atmosphere", "26: Bowed Cello Section", "27: Chamber Strings Adagio",
+            "28: Warm French Horn Swell", "29: Bass Clarinet & Woodwind", "30: Bowed Glass & Waterphone",
+            "31: Hammond Warm Drawbars", "32: Pipe Organ Flutes 8'+4'", "33: Soft Reed Harmonium",
+            "34: Octave Fifths Cathedral", "35: Warm Tape Saturation Morph", "36: Even-Harmonic Tube Glow",
+            "37: Chebyshev Silk Overtones", "38: West-Coast Soft Wavefold", "39: Phase-Shift Warm Cloud",
+            "40: Spectral Comb Breeze", "41: Golden Ratio Harmonics", "42: Fibonacci Overtones Pad",
+            "43: Sub-Fifths Ambient Drone", "44: Deep Space Nebula Morph", "45: Analog Horizon Sunrise",
+            "46: Arctic Aurora Shimmer", "47: Velvet Night Nocturne", "48: Liquid Silk Chorus Wave",
+            "49: Dreamy Lo-Fi Tape Pad", "50: Cosmic Evolving Symphony", "51: [Custom Loaded WAV]"
         };
     }
 
@@ -587,27 +217,23 @@ public:
         const int numFrames = 64;
         const int N = WavetableData::tableSize;
         data->frames.resize(numFrames, std::vector<float>(N, 0.0f));
-        auto names = getPresetNames();
-        data->name = names[juce::jlimit(0, numBuiltInPresets - 1, index)];
+        data->name = getPresetNames()[juce::jlimit(0, numBuiltInPresets - 1, index)];
 
         const double twoPi = juce::MathConstants<double>::twoPi;
 
-        // Bandlimitierte harmonische Synthese verhindert digitales Aliasing und sorgt für samtige Pad-Textur
         for (int f = 0; f < numFrames; ++f)
         {
-            double m = static_cast<double>(f) / static_cast<double>(numFrames - 1);
+            const double m = static_cast<double>(f) / static_cast<double>(numFrames - 1);
             float peak = 0.0001f;
 
             for (int i = 0; i < N; ++i)
             {
-                double ph = static_cast<double>(i) / static_cast<double>(N);
-                double w = ph * twoPi;
+                const double w = (static_cast<double>(i) / static_cast<double>(N)) * twoPi;
                 double val = 0.0;
 
                 switch (index)
                 {
-                    case 0: // 01: Solina String Ensemble
-                    {
+                    case 0:
                         for (int h = 1; h <= 22; ++h)
                         {
                             double phaseMod = std::sin(m * twoPi + h * 0.85) * 1.4;
@@ -615,8 +241,7 @@ public:
                             val += (env / std::pow(h, 0.7)) * std::sin(h * w + phaseMod);
                         }
                         break;
-                    }
-                    case 1: // 02: CS-80 Velvet Brass Swell
+                    case 1:
                     {
                         double cutoffH = 3.0 + m * 22.0;
                         for (int h = 1; h <= 26; ++h)
@@ -627,17 +252,14 @@ public:
                         }
                         break;
                     }
-                    case 2: // 03: OB-Xa Warm Analog Pad
-                    {
+                    case 2:
                         for (int h = 1; h <= 20; ++h)
                         {
                             double spread = m * h * 0.45;
                             val += (1.0 / std::pow(h, 0.85)) * (std::sin(h * w) + 0.65 * std::sin(h * w + spread));
                         }
                         break;
-                    }
-                    case 3: // 04: Juno-106 Chorus Silk
-                    {
+                    case 3:
                         for (int h = 1; h <= 18; ++h)
                         {
                             double c1 = std::sin(h * w);
@@ -646,9 +268,7 @@ public:
                             val += (1.0 / std::pow(h, 0.8)) * (c1 + 0.55 * c2 + 0.55 * c3);
                         }
                         break;
-                    }
-                    case 4: // 05: Prophet-5 Warm Saw-Tri
-                    {
+                    case 4:
                         for (int h = 1; h <= 24; ++h)
                         {
                             double triAmp = (h % 2 == 1) ? (1.0 / (h * h)) * ((h % 4 == 1) ? 1.0 : -1.0) : 0.0;
@@ -656,9 +276,7 @@ public:
                             val += ((1.0 - m) * triAmp * 1.4 + m * sawAmp) * std::sin(h * w);
                         }
                         break;
-                    }
-                    case 5: // 06: Jupiter-8 Lush Strings
-                    {
+                    case 5:
                         for (int h = 1; h <= 24; ++h)
                         {
                             double detunePh = std::sin(m * 3.14159 * 2.0 + h * 0.5) * 1.1;
@@ -666,8 +284,7 @@ public:
                             val += (rolloff / std::pow(h, 0.75)) * (std::sin(h * w) + std::sin(h * w + detunePh));
                         }
                         break;
-                    }
-                    case 6: // 07: MiniMoog Soft Ladder Bloom
+                    case 6:
                     {
                         double fc = 2.0 + m * 18.0;
                         for (int h = 1; h <= 24; ++h)
@@ -677,7 +294,7 @@ public:
                         }
                         break;
                     }
-                    case 7: // 08: PWM Creamy Ribbon Pad
+                    case 7:
                     {
                         double pw = 0.5 - 0.36 * m;
                         for (int h = 1; h <= 24; ++h)
@@ -687,27 +304,20 @@ public:
                         }
                         break;
                     }
-                    case 8: // 09: Dual-Detuned Analog Drift
-                    {
+                    case 8:
                         for (int h = 1; h <= 20; ++h)
                         {
                             double d = m * 3.14159 * (0.3 + 0.15 * h);
                             val += (1.0 / std::pow(h, 0.8)) * (std::sin(h * w) + std::sin(h * w + d));
                         }
                         break;
-                    }
-                    case 9: // 10: Warm Sub-Octave Pillow
-                    {
-                        val = std::sin(w)
-                            + (0.45 + 0.25 * m) * std::sin(2.0 * w)
-                            + (0.20 * m) * std::sin(3.0 * w)
-                            + (0.15 * m * m) * std::sin(4.0 * w);
+                    case 9:
+                        val = std::sin(w) + (0.45 + 0.25 * m) * std::sin(2.0 * w)
+                            + (0.20 * m) * std::sin(3.0 * w) + (0.15 * m * m) * std::sin(4.0 * w);
                         break;
-                    }
-                    case 10: // 11: Mellotron Tape Choir
+                    case 10:
                     {
-                        double f1 = 3.0 + m * 2.5;
-                        double f2 = 7.0 + m * 4.0;
+                        double f1 = 3.0 + m * 2.5, f2 = 7.0 + m * 4.0;
                         for (int h = 1; h <= 16; ++h)
                         {
                             double g1 = std::exp(-std::pow((h - f1) / 1.8, 2.0));
@@ -716,10 +326,9 @@ public:
                         }
                         break;
                     }
-                    case 11: // 12: Cathedral Angelic Choir
+                    case 11:
                     {
-                        double f1 = 4.0 + std::sin(m * 3.14159) * 3.0;
-                        double f2 = 10.0 + m * 5.0;
+                        double f1 = 4.0 + std::sin(m * 3.14159) * 3.0, f2 = 10.0 + m * 5.0;
                         for (int h = 1; h <= 20; ++h)
                         {
                             double g1 = std::exp(-std::pow((h - f1) / 1.6, 2.0));
@@ -728,10 +337,9 @@ public:
                         }
                         break;
                     }
-                    case 12: // 13: Vowel Formant A-O-U Morph
+                    case 12:
                     {
-                        double f1 = 6.0 - m * 3.5;
-                        double f2 = 11.0 - m * 4.5;
+                        double f1 = 6.0 - m * 3.5, f2 = 11.0 - m * 4.5;
                         for (int h = 1; h <= 18; ++h)
                         {
                             double formant = std::exp(-std::pow((h - f1) / 1.5, 2.0))
@@ -740,8 +348,7 @@ public:
                         }
                         break;
                     }
-                    case 13: // 14: Breath & Air Silk Pad
-                    {
+                    case 13:
                         for (int h = 1; h <= 24; ++h)
                         {
                             double air = (h > 10) ? (m * 0.28 * std::sin(h * 2.3 + m * 4.0)) : 0.0;
@@ -749,18 +356,14 @@ public:
                             val += (body + air) * std::sin(h * w + h * 0.3);
                         }
                         break;
-                    }
-                    case 14: // 15: Whispering Formant Cloud
-                    {
+                    case 14:
                         for (int h = 1; h <= 20; ++h)
                         {
                             double peak1 = std::exp(-std::pow((h - (5.0 + m * 7.0)) / 2.3, 2.0));
                             val += (0.3 / h + 0.85 * peak1) * std::sin(h * w + m * h * 0.6);
                         }
                         break;
-                    }
-                    case 15: // 16: Soprano & Alto Blend
-                    {
+                    case 15:
                         for (int h = 1; h <= 18; ++h)
                         {
                             double alto = std::exp(-std::pow((h - 4.0) / 1.5, 2.0)) * (1.0 - 0.5 * m);
@@ -768,17 +371,11 @@ public:
                             val += (0.25 / h + alto + sop) * std::sin(h * w);
                         }
                         break;
-                    }
-                    case 16: // 17: Ethereal Glass Harmonics
-                    {
-                        val = std::sin(w)
-                            + (0.3 + 0.4 * m) * std::sin(3.0 * w)
-                            + (0.15 + 0.45 * m) * std::sin(6.0 * w)
-                            + (0.35 * m * m) * std::sin(9.0 * w);
+                    case 16:
+                        val = std::sin(w) + (0.3 + 0.4 * m) * std::sin(3.0 * w)
+                            + (0.15 + 0.45 * m) * std::sin(6.0 * w) + (0.35 * m * m) * std::sin(9.0 * w);
                         break;
-                    }
-                    case 17: // 18: PPG Wave 2.2 Crystal Pad
-                    {
+                    case 17:
                         for (int h = 1; h <= 16; ++h)
                         {
                             double crystal = std::sin(m * 4.5 + h * 0.9);
@@ -786,79 +383,55 @@ public:
                             val += ((1.0 / (h * h)) + 0.55 * weight) * std::sin(h * w);
                         }
                         break;
-                    }
-                    case 18: // 19: Frozen Ice Bell Shimmer
-                    {
-                        val = std::sin(w)
-                            + 0.45 * std::sin(2.0 * w)
-                            + (0.4 * m) * std::sin(5.0 * w + m * 1.5)
-                            + (0.35 * m) * std::sin(7.0 * w)
-                            + (0.25 * m * m) * std::sin(11.0 * w);
+                    case 18:
+                        val = std::sin(w) + 0.45 * std::sin(2.0 * w) + (0.4 * m) * std::sin(5.0 * w + m * 1.5)
+                            + (0.35 * m) * std::sin(7.0 * w) + (0.25 * m * m) * std::sin(11.0 * w);
                         break;
-                    }
-                    case 19: // 20: Celestial Harp Harmonics
-                    {
+                    case 19:
                         for (int h = 1; h <= 16; ++h)
-                        {
-                            double damp = std::exp(-h * (0.24 - 0.16 * m));
-                            val += damp * std::sin(h * w);
-                        }
+                            val += std::exp(-h * (0.24 - 0.16 * m)) * std::sin(h * w);
                         break;
-                    }
-                    case 20: // 21: Shimmering Octave Mist
-                    {
-                        val = std::sin(w)
-                            + 0.55 * std::sin(2.0 * w)
-                            + (0.35 + 0.3 * m) * std::sin(4.0 * w)
-                            + (0.45 * m) * std::sin(8.0 * w)
-                            + (0.30 * m * m) * std::sin(12.0 * w);
+                    case 20:
+                        val = std::sin(w) + 0.55 * std::sin(2.0 * w) + (0.35 + 0.3 * m) * std::sin(4.0 * w)
+                            + (0.45 * m) * std::sin(8.0 * w) + (0.30 * m * m) * std::sin(12.0 * w);
                         break;
-                    }
-                    case 21: // 22: Warm Rhodes Tine Pad
-                    {
-                        val = std::sin(w)
-                            + 0.42 * std::sin(2.0 * w)
-                            + (0.22 * (1.0 - 0.4 * m)) * std::sin(3.0 * w)
-                            + (0.28 * m) * std::sin(7.0 * w);
+                    case 21:
+                        val = std::sin(w) + 0.42 * std::sin(2.0 * w)
+                            + (0.22 * (1.0 - 0.4 * m)) * std::sin(3.0 * w) + (0.28 * m) * std::sin(7.0 * w);
                         break;
-                    }
-                    case 22: // 23: DX7 Soft Sine Bloom
+                    case 22:
                     {
                         double idx = 0.15 + m * 1.85;
                         val = std::sin(w + idx * std::sin(2.0 * w)) + 0.25 * std::sin(w);
                         break;
                     }
-                    case 23: // 24: FM Velvet Electric Pad
+                    case 23:
                     {
                         double idx = 0.25 + m * 2.1;
                         val = std::sin(w + idx * std::sin(w) * std::cos(2.0 * w));
                         break;
                     }
-                    case 24: // 25: FM Warm Bell Atmosphere
+                    case 24:
                     {
                         double idx = 0.2 + m * 1.9;
                         val = 0.75 * std::sin(w + idx * std::sin(3.0 * w)) + 0.35 * std::sin(2.0 * w);
                         break;
                     }
-                    case 25: // 26: Bowed Cello Section
-                    {
+                    case 25:
                         for (int h = 1; h <= 20; ++h)
                         {
                             double bow = std::exp(-h * 0.08) * (1.0 / std::pow(h, 0.75));
                             val += bow * std::sin(h * w + m * h * 0.55);
                         }
                         break;
-                    }
-                    case 26: // 27: Chamber Strings Adagio
-                    {
+                    case 26:
                         for (int h = 1; h <= 18; ++h)
                         {
                             double vibr = std::sin(m * twoPi + h * 0.6) * 0.8;
                             val += (std::exp(-h * 0.11) / std::sqrt(static_cast<double>(h))) * std::sin(h * w + vibr);
                         }
                         break;
-                    }
-                    case 27: // 28: Warm French Horn Swell
+                    case 27:
                     {
                         double cutoff = 2.5 + m * 11.0;
                         for (int h = 1; h <= 16; ++h)
@@ -868,8 +441,7 @@ public:
                         }
                         break;
                     }
-                    case 28: // 29: Bass Clarinet & Woodwind
-                    {
+                    case 28:
                         for (int h = 1; h <= 15; h += 2)
                         {
                             double weight = std::exp(-h * (0.14 - 0.07 * m));
@@ -877,16 +449,11 @@ public:
                         }
                         val += 0.22 * m * std::sin(2.0 * w);
                         break;
-                    }
-                    case 29: // 30: Bowed Glass & Waterphone
-                    {
-                        val = std::sin(w)
-                            + (0.5 * m) * std::sin(3.0 * w + m * 2.0)
-                            + (0.35 * m) * std::sin(5.0 * w - m * 1.5)
-                            + (0.25 * m * m) * std::sin(8.0 * w);
+                    case 29:
+                        val = std::sin(w) + (0.5 * m) * std::sin(3.0 * w + m * 2.0)
+                            + (0.35 * m) * std::sin(5.0 * w - m * 1.5) + (0.25 * m * m) * std::sin(8.0 * w);
                         break;
-                    }
-                    case 30: // 31: Hammond Warm Drawbars
+                    case 30:
                     {
                         const int drawbars[9] = { 1, 2, 3, 4, 6, 8, 10, 12, 16 };
                         for (int k = 0; k < 9; ++k)
@@ -897,49 +464,33 @@ public:
                         }
                         break;
                     }
-                    case 31: // 32: Pipe Organ Flutes 8'+4'
-                    {
-                        val = std::sin(w)
-                            + 0.65 * std::sin(2.0 * w)
-                            + (0.35 * m) * std::sin(3.0 * w)
-                            + (0.45 * m) * std::sin(4.0 * w)
-                            + (0.20 * m * m) * std::sin(6.0 * w);
+                    case 31:
+                        val = std::sin(w) + 0.65 * std::sin(2.0 * w) + (0.35 * m) * std::sin(3.0 * w)
+                            + (0.45 * m) * std::sin(4.0 * w) + (0.20 * m * m) * std::sin(6.0 * w);
                         break;
-                    }
-                    case 32: // 33: Soft Reed Harmonium
-                    {
+                    case 32:
                         for (int h = 1; h <= 16; ++h)
                         {
                             double roll = std::exp(-h * (0.15 - 0.08 * m));
                             val += (roll / std::sqrt(static_cast<double>(h))) * std::sin(h * w);
                         }
                         break;
-                    }
-                    case 33: // 34: Octave Fifths Cathedral
-                    {
-                        val = std::sin(w)
-                            + 0.60 * std::sin(2.0 * w)
-                            + (0.45 + 0.25 * m) * std::sin(3.0 * w)
-                            + (0.35 * m) * std::sin(4.0 * w)
-                            + (0.30 * m) * std::sin(6.0 * w);
+                    case 33:
+                        val = std::sin(w) + 0.60 * std::sin(2.0 * w) + (0.45 + 0.25 * m) * std::sin(3.0 * w)
+                            + (0.35 * m) * std::sin(4.0 * w) + (0.30 * m) * std::sin(6.0 * w);
                         break;
-                    }
-                    case 34: // 35: Warm Tape Saturation Morph
+                    case 34:
                     {
                         double raw = std::sin(w) + 0.45 * std::sin(2.0 * w) + 0.25 * std::sin(3.0 * w);
                         double drive = 1.0 + m * 3.2;
                         val = std::tanh(raw * drive) / std::tanh(drive);
                         break;
                     }
-                    case 35: // 36: Even-Harmonic Tube Glow
-                    {
-                        val = std::sin(w)
-                            + (0.2 + 0.45 * m) * std::sin(2.0 * w)
-                            + (0.08 + 0.28 * m) * std::sin(4.0 * w)
-                            + (0.15 * m * m) * std::sin(6.0 * w);
+                    case 35:
+                        val = std::sin(w) + (0.2 + 0.45 * m) * std::sin(2.0 * w)
+                            + (0.08 + 0.28 * m) * std::sin(4.0 * w) + (0.15 * m * m) * std::sin(6.0 * w);
                         break;
-                    }
-                    case 36: // 37: Chebyshev Silk Overtones
+                    case 36:
                     {
                         double x = std::sin(w);
                         double t2 = 2.0 * x * x - 1.0;
@@ -947,22 +498,20 @@ public:
                         val = x + (0.4 * m) * t2 + (0.25 * m * m) * t3;
                         break;
                     }
-                    case 37: // 38: West-Coast Soft Wavefold
+                    case 37:
                     {
                         double gain = 1.0 + m * 2.4;
                         val = std::sin(gain * std::sin(w));
                         break;
                     }
-                    case 38: // 39: Phase-Shift Warm Cloud
-                    {
+                    case 38:
                         for (int h = 1; h <= 14; ++h)
                         {
                             double shift = std::sin(m * twoPi + h * 0.4) * 2.0;
                             val += (std::exp(-h * 0.12) / std::sqrt(static_cast<double>(h))) * std::sin(h * w + shift);
                         }
                         break;
-                    }
-                    case 39: // 40: Spectral Comb Breeze
+                    case 39:
                     {
                         double notch = 2.0 + m * 10.0;
                         for (int h = 1; h <= 18; ++h)
@@ -972,70 +521,47 @@ public:
                         }
                         break;
                     }
-                    case 40: // 41: Golden Ratio Harmonics
-                    {
-                        val = std::sin(w)
-                            + 0.45 * std::sin(2.0 * w)
-                            + (0.4 * m) * std::sin(3.0 * w)
-                            + (0.35 * m) * std::sin(5.0 * w)
-                            + (0.25 * m * m) * std::sin(8.0 * w);
+                    case 40:
+                        val = std::sin(w) + 0.45 * std::sin(2.0 * w) + (0.4 * m) * std::sin(3.0 * w)
+                            + (0.35 * m) * std::sin(5.0 * w) + (0.25 * m * m) * std::sin(8.0 * w);
                         break;
-                    }
-                    case 41: // 42: Fibonacci Overtones Pad
+                    case 41:
                     {
                         const int fib[7] = { 1, 2, 3, 5, 8, 13, 21 };
                         for (int k = 0; k < 7; ++k)
-                        {
-                            double wgt = std::exp(-k * (0.45 - 0.25 * m));
-                            val += wgt * std::sin(fib[k] * w);
-                        }
+                            val += std::exp(-k * (0.45 - 0.25 * m)) * std::sin(fib[k] * w);
                         break;
                     }
-                    case 42: // 43: Sub-Fifths Ambient Drone
-                    {
-                        val = std::sin(w)
-                            + 0.55 * std::sin(2.0 * w)
-                            + (0.35 + 0.25 * m) * std::sin(3.0 * w)
+                    case 42:
+                        val = std::sin(w) + 0.55 * std::sin(2.0 * w) + (0.35 + 0.25 * m) * std::sin(3.0 * w)
                             + (0.25 * m) * std::sin(6.0 * w);
                         break;
-                    }
-                    case 43: // 44: Deep Space Nebula Morph
-                    {
+                    case 43:
                         for (int h = 1; h <= 16; ++h)
                         {
                             double swell = 0.5 + 0.5 * std::sin(m * 4.0 + h * 0.75);
                             val += (swell * std::exp(-h * 0.11) / std::sqrt(static_cast<double>(h))) * std::sin(h * w);
                         }
                         break;
-                    }
-                    case 44: // 45: Analog Horizon Sunrise
-                    {
+                    case 44:
                         for (int h = 1; h <= 20; ++h)
                         {
                             double horizon = std::exp(-h * (0.28 - 0.22 * m));
                             val += (horizon / std::pow(h, 0.7)) * std::sin(h * w);
                         }
                         break;
-                    }
-                    case 45: // 46: Arctic Aurora Shimmer
-                    {
+                    case 45:
                         for (int h = 1; h <= 18; ++h)
                         {
                             double band = std::exp(-std::pow((h - (3.0 + m * 10.0)) / 3.0, 2.0));
                             val += (0.35 / h + 0.65 * band / std::sqrt(static_cast<double>(h))) * std::sin(h * w + h * 0.4);
                         }
                         break;
-                    }
-                    case 46: // 47: Velvet Night Nocturne
-                    {
-                        val = std::sin(w)
-                            + (0.4 + 0.2 * m) * std::sin(2.0 * w)
-                            + (0.25 * m) * std::sin(3.0 * w)
-                            + (0.12 * m) * std::sin(4.0 * w);
+                    case 46:
+                        val = std::sin(w) + (0.4 + 0.2 * m) * std::sin(2.0 * w)
+                            + (0.25 * m) * std::sin(3.0 * w) + (0.12 * m) * std::sin(4.0 * w);
                         break;
-                    }
-                    case 47: // 48: Liquid Silk Chorus Wave
-                    {
+                    case 47:
                         for (int h = 1; h <= 14; ++h)
                         {
                             double ph1 = std::sin(m * twoPi + h * 0.5);
@@ -1043,18 +569,14 @@ public:
                             val += (std::exp(-h * 0.13) / h) * (std::sin(h * w + ph1) + std::sin(h * w + ph2));
                         }
                         break;
-                    }
-                    case 48: // 49: Dreamy Lo-Fi Tape Pad
-                    {
+                    case 48:
                         for (int h = 1; h <= 12; ++h)
                         {
                             double wobble = std::sin(h * 1.9 + m * 3.0) * 0.35;
                             val += (std::exp(-h * 0.18) / std::pow(h, 0.8)) * std::sin(h * w + wobble);
                         }
                         break;
-                    }
-                    default: // 50: Cosmic Evolving Symphony
-                    {
+                    default:
                         for (int h = 1; h <= 20; ++h)
                         {
                             double wave1 = 0.5 + 0.5 * std::sin(m * twoPi + h * 0.45);
@@ -1062,10 +584,9 @@ public:
                             val += (wave1 * wave2 * std::exp(-h * 0.08) / std::sqrt(static_cast<double>(h))) * std::sin(h * w);
                         }
                         break;
-                    }
                 }
 
-                float fVal = static_cast<float>(val);
+                const float fVal = static_cast<float>(val);
                 data->frames[f][i] = fVal;
                 peak = std::max(peak, std::abs(fVal));
             }
@@ -1093,74 +614,71 @@ public:
         juce::AudioBuffer<float> tempBuffer(static_cast<int>(reader->numChannels), totalSamples);
         reader->read(&tempBuffer, 0, totalSamples, 0, true, true);
 
-        std::vector<float> mono(totalSamples, 0.0f);
+        std::vector<float> mono(static_cast<size_t>(totalSamples), 0.0f);
         for (int ch = 0; ch < tempBuffer.getNumChannels(); ++ch)
         {
             const float* src = tempBuffer.getReadPointer(ch);
             for (int i = 0; i < totalSamples; ++i)
-                mono[i] += src[i];
+                mono[static_cast<size_t>(i)] += src[i];
         }
         if (tempBuffer.getNumChannels() > 1)
         {
-            float scale = 1.0f / static_cast<float>(tempBuffer.getNumChannels());
+            const float scale = 1.0f / static_cast<float>(tempBuffer.getNumChannels());
             for (float& v : mono) v *= scale;
         }
 
         auto data = std::make_shared<WavetableData>();
         data->name = "WAV: " + file.getFileNameWithoutExtension();
+        const int T = WavetableData::tableSize;
 
-        if (totalSamples >= WavetableData::tableSize && (totalSamples % WavetableData::tableSize == 0))
+        if (totalSamples >= T && (totalSamples % T == 0))
         {
-            int numFrames = std::min(256, totalSamples / WavetableData::tableSize);
-            data->frames.resize(numFrames, std::vector<float>(WavetableData::tableSize, 0.0f));
+            const int numFrames = std::min(256, totalSamples / T);
+            data->frames.resize(static_cast<size_t>(numFrames), std::vector<float>(T, 0.0f));
 
             for (int f = 0; f < numFrames; ++f)
             {
-                int offset = f * WavetableData::tableSize;
+                const int offset = f * T;
                 float peak = 0.0001f;
-                for (int i = 0; i < WavetableData::tableSize; ++i)
+                for (int i = 0; i < T; ++i)
                 {
-                    float val = mono[offset + i];
-                    data->frames[f][i] = val;
+                    const float val = mono[static_cast<size_t>(offset + i)];
+                    data->frames[static_cast<size_t>(f)][static_cast<size_t>(i)] = val;
                     peak = std::max(peak, std::abs(val));
                 }
                 if (peak > 0.001f)
-                {
-                    for (int i = 0; i < WavetableData::tableSize; ++i)
-                        data->frames[f][i] /= peak;
-                }
+                    for (int i = 0; i < T; ++i)
+                        data->frames[static_cast<size_t>(f)][static_cast<size_t>(i)] /= peak;
             }
         }
         else
         {
-            int numFrames = (totalSamples <= 4096) ? 1 : std::min(64, std::max(1, totalSamples / 512));
-            int chunkLen = std::max(16, totalSamples / numFrames);
-            data->frames.resize(numFrames, std::vector<float>(WavetableData::tableSize, 0.0f));
+            const int numFrames = (totalSamples <= 4096) ? 1 : std::min(64, std::max(1, totalSamples / 512));
+            const int chunkLen = std::max(16, totalSamples / numFrames);
+            data->frames.resize(static_cast<size_t>(numFrames), std::vector<float>(T, 0.0f));
 
             for (int f = 0; f < numFrames; ++f)
             {
-                int start = f * chunkLen;
-                int len = std::min(chunkLen, totalSamples - start);
+                const int start = f * chunkLen;
+                const int len = std::min(chunkLen, totalSamples - start);
                 if (len < 4) break;
 
                 float peak = 0.0001f;
-                for (int i = 0; i < WavetableData::tableSize; ++i)
+                for (int i = 0; i < T; ++i)
                 {
-                    double pos = (static_cast<double>(i) / static_cast<double>(WavetableData::tableSize)) * static_cast<double>(len - 1);
-                    int idx0 = static_cast<int>(pos);
-                    int idx1 = std::min(len - 1, idx0 + 1);
-                    float frac = static_cast<float>(pos - idx0);
+                    const double pos = (static_cast<double>(i) / static_cast<double>(T)) * static_cast<double>(len - 1);
+                    const int idx0 = static_cast<int>(pos);
+                    const int idx1 = std::min(len - 1, idx0 + 1);
+                    const float frac = static_cast<float>(pos - idx0);
 
-                    float val = mono[start + idx0] * (1.0f - frac) + mono[start + idx1] * frac;
-                    data->frames[f][i] = val;
+                    const float val = mono[static_cast<size_t>(start + idx0)] * (1.0f - frac)
+                                    + mono[static_cast<size_t>(start + idx1)] * frac;
+                    data->frames[static_cast<size_t>(f)][static_cast<size_t>(i)] = val;
                     peak = std::max(peak, std::abs(val));
                 }
-
                 if (peak > 0.001f)
-                {
-                    for (int i = 0; i < WavetableData::tableSize; ++i)
-                        data->frames[f][i] /= peak;
-                }
+                    for (int i = 0; i < T; ++i)
+                        data->frames[static_cast<size_t>(f)][static_cast<size_t>(i)] /= peak;
             }
         }
 
@@ -1172,85 +690,167 @@ public:
 };
 
 // ==============================================================================
-// High-Resolution Wavetable Oscillator (2D Frame Morphing + Cubic Hermite)
+// Wavetable-Oszillator: Frame-Auswahl wird pro Chunk vorberechnet (WtFrameRef),
+// im Sample-Loop gibt es keine Locks / shared_ptr-Zugriffe mehr.
 // ==============================================================================
+struct WtFrameRef
+{
+    const float* a = nullptr;
+    const float* b = nullptr;
+    float frac = 0.0f;
+
+    bool set(const WavetableData* t, float morphPos) noexcept
+    {
+        if (t == nullptr || t->frames.empty())
+            return false;
+
+        const int n = static_cast<int>(t->frames.size());
+        const float ff = juce::jlimit(0.0f, 1.0f, morphPos) * static_cast<float>(n - 1);
+        const int ia = static_cast<int>(ff);
+        const int ib = std::min(n - 1, ia + 1);
+        frac = ff - static_cast<float>(ia);
+        a = t->frames[static_cast<size_t>(ia)].data();
+        b = t->frames[static_cast<size_t>(ib)].data();
+        return true;
+    }
+};
+
 class WavetableOscillator
 {
 public:
-    void setSampleRate(double sr) { sampleRate = sr; }
     void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); }
+    void setPhaseInc(double inc) noexcept { phaseInc = juce::jlimit(1.0e-4, 0.48, inc); }
 
-    void setFrequency(double freq)
+    inline float processSample(const WtFrameRef& r) noexcept
     {
-        frequency = juce::jlimit(10.0, sampleRate * 0.48, freq);
-        phaseInc = frequency / sampleRate;
-    }
+        const double tp = phase * static_cast<double>(WavetableData::tableSize);
+        const int idx0 = static_cast<int>(tp) & (WavetableData::tableSize - 1);
+        const float frac = static_cast<float>(tp - std::floor(tp));
 
-    void setTable(std::shared_ptr<WavetableData> newTable)
-    {
-        if (newTable != nullptr && !newTable->frames.empty())
-            std::atomic_store(&currentTable, newTable);
-    }
-
-    std::shared_ptr<WavetableData> getTable() const
-    {
-        return std::atomic_load(&currentTable);
-    }
-
-    float processSample(float morphPos)
-    {
-        auto table = std::atomic_load(&currentTable);
-        if (table == nullptr || table->frames.empty())
-            return 0.0f;
-
-        const int numFrames = static_cast<int>(table->frames.size());
-        const float clampedMorph = juce::jlimit(0.0f, 1.0f, morphPos);
-
-        float frameFloat = clampedMorph * static_cast<float>(numFrames - 1);
-        int frameA = static_cast<int>(frameFloat);
-        int frameB = std::min(numFrames - 1, frameA + 1);
-        float frameFrac = frameFloat - static_cast<float>(frameA);
-
-        double tablePos = phase * static_cast<double>(WavetableData::tableSize);
-        int idx0 = static_cast<int>(tablePos) & (WavetableData::tableSize - 1);
-        float frac = static_cast<float>(tablePos - std::floor(tablePos));
-
-        float sampleA = readHermite(table->frames[frameA], idx0, frac);
-        float sampleB = (frameA == frameB) ? sampleA : readHermite(table->frames[frameB], idx0, frac);
+        float out = readHermite(r.a, idx0, frac);
+        if (r.b != r.a)
+            out += (readHermite(r.b, idx0, frac) - out) * r.frac;
 
         phase += phaseInc;
-        if (phase >= 1.0)
-            phase -= 1.0;
-
-        return sampleA * (1.0f - frameFrac) + sampleB * frameFrac;
+        if (phase >= 1.0) phase -= 1.0;
+        return out;
     }
 
 private:
-    static float readHermite(const std::vector<float>& frame, int idx, float frac)
+    static inline float readHermite(const float* fr, int idx, float frac) noexcept
     {
         constexpr int mask = WavetableData::tableSize - 1;
-        float ym1 = frame[(idx - 1) & mask];
-        float y0  = frame[idx & mask];
-        float y1  = frame[(idx + 1) & mask];
-        float y2  = frame[(idx + 2) & mask];
+        const float ym1 = fr[(idx - 1) & mask];
+        const float y0  = fr[idx & mask];
+        const float y1  = fr[(idx + 1) & mask];
+        const float y2  = fr[(idx + 2) & mask];
 
-        float c0 = y0;
-        float c1 = 0.5f * (y1 - ym1);
-        float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
-        float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
-
-        return ((c3 * frac + c2) * frac + c1) * frac + c0;
+        const float c1 = 0.5f * (y1 - ym1);
+        const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+        const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+        return ((c3 * frac + c2) * frac + c1) * frac + y0;
     }
 
-    std::shared_ptr<WavetableData> currentTable;
-    double sampleRate = 44100.0;
-    double frequency = 440.0;
-    double phase = 0.0;
-    double phaseInc = 0.01;
+    double phase = 0.0, phaseInc = 0.01;
 };
 
 // ==============================================================================
-// Unison Sub-Voice (3 Analog PolyBLEP Oscs + 1 Wavetable Osc + Drift per Sub-Voice)
+// Analoge Huellkurve (RC-artig): Attack greift sofort, Decay/Release exponentiell
+// ==============================================================================
+class AnalogEnvelope
+{
+public:
+    void setSampleRate(double sr) { rate = static_cast<float>(sr); }
+
+    void setParameters(float a, float d, float s, float r)
+    {
+        sustain = s;
+        atkCoef = calcCoef(a * rate, atkRatio);
+        atkBase = (1.0f + atkRatio) * (1.0f - atkCoef);
+        decCoef = calcCoef(d * rate, drRatio);
+        decBase = (sustain - drRatio) * (1.0f - decCoef);
+        relCoef = calcCoef(r * rate, drRatio);
+        relBase = -drRatio * (1.0f - relCoef);
+    }
+
+    void noteOn()  { stage = Attack; }
+    void noteOff() { if (stage != Idle) stage = Release; }
+    void reset()   { stage = Idle; level = 0.0f; }
+    bool isActive() const noexcept { return stage != Idle; }
+    float getLevel() const noexcept { return level; }
+
+    inline float getNextSample() noexcept
+    {
+        switch (stage)
+        {
+            case Attack:
+                level = atkBase + level * atkCoef;
+                if (level >= 1.0f) { level = 1.0f; stage = Decay; }
+                break;
+            case Decay:
+                level = decBase + level * decCoef;
+                if (level <= sustain) { level = sustain; stage = Sustain; }
+                break;
+            case Sustain:
+                level = sustain;
+                break;
+            case Release:
+                level = relBase + level * relCoef;
+                if (level <= 1.0e-4f) { level = 0.0f; stage = Idle; }
+                break;
+            default:
+                level = 0.0f;
+                break;
+        }
+        return level;
+    }
+
+private:
+    enum Stage { Idle, Attack, Decay, Sustain, Release };
+
+    static float calcCoef(float rateSamples, float ratio)
+    {
+        return rateSamples <= 1.0f ? 0.0f : std::exp(-std::log((1.0f + ratio) / ratio) / rateSamples);
+    }
+
+    static constexpr float atkRatio = 0.3f;     // kleiner = linearer, groesser = schneller Anstieg
+    static constexpr float drRatio  = 1.0e-4f;
+
+    Stage stage = Idle;
+    float level = 0.0f, sustain = 1.0f, rate = 44100.0f;
+    float atkCoef = 0.0f, atkBase = 1.3f, decCoef = 0.0f, decBase = 0.0f, relCoef = 0.0f, relBase = 0.0f;
+};
+
+// ==============================================================================
+// 4-Pol Moog-Ladder (24 dB/Okt) - OHNE interne Cutoff-Glaettung, damit der
+// Filter der Huellkurve sofort folgt. Cutoff-Koeffizient wird alle 8 Samples
+// neu berechnet.
+// ==============================================================================
+struct MoogLadder
+{
+    float s1 = 0.0f, s2 = 0.0f, s3 = 0.0f, s4 = 0.0f;
+
+    void reset() { s1 = s2 = s3 = s4 = 0.0f; }
+
+    static float coeff(float cutoffHz, float rate) noexcept
+    {
+        const float fc = juce::jlimit(20.0f, rate * 0.25f, cutoffHz);
+        return 1.0f - std::exp(-juce::MathConstants<float>::twoPi * fc / rate);
+    }
+
+    inline float process(float in, float g, float k) noexcept
+    {
+        const float x = fastTanh(in - k * s4);
+        s1 += g * (x - s1);
+        s2 += g * (s1 - s2);
+        s3 += g * (s2 - s3);
+        s4 += g * (s3 - s4);
+        return s4;
+    }
+};
+
+// ==============================================================================
+// Unison Sub-Voice / Poly Voice
 // ==============================================================================
 struct UnisonSubVoice
 {
@@ -1261,27 +861,22 @@ struct UnisonSubVoice
     WavetableOscillator wtOsc;
     AnalogDriftGenerator wtDriftGen;
 
-    void prepare(double sampleRate, int polyVoiceIdx, int unisonIdx)
+    void prepare(double controlRate, int polyVoiceIdx, int unisonIdx)
     {
-        uint32_t baseSeed = static_cast<uint32_t>(104729 + polyVoiceIdx * 15401 + unisonIdx * 3571);
-        double initPhaseOffset = std::fmod((polyVoiceIdx * 0.2360679 + unisonIdx * 0.38196601), 1.0);
+        const uint32_t baseSeed = static_cast<uint32_t>(104729 + polyVoiceIdx * 15401 + unisonIdx * 3571);
+        const double initPhaseOffset = std::fmod((polyVoiceIdx * 0.2360679 + unisonIdx * 0.38196601), 1.0);
 
         for (int o = 0; o < 3; ++o)
         {
-            oscs[o].setSampleRate(sampleRate);
             oscs[o].reset(std::fmod(initPhaseOffset + o * 0.27, 1.0));
-            driftGens[o].prepare(sampleRate, baseSeed + static_cast<uint32_t>(o * 1301));
+            driftGens[o].prepare(controlRate, baseSeed + static_cast<uint32_t>(o * 1301));
         }
 
-        wtOsc.setSampleRate(sampleRate);
         wtOsc.reset(std::fmod(initPhaseOffset + 0.13, 1.0));
-        wtDriftGen.prepare(sampleRate, baseSeed + 4999u);
+        wtDriftGen.prepare(controlRate, baseSeed + 4999u);
     }
 };
 
-// ==============================================================================
-// Polyphonic Synth Voice (8-Voice Polyphony, each with up to 7 Unison Sub-Voices)
-// ==============================================================================
 struct PolySynthVoice
 {
     static constexpr int maxPolyVoices = 8;
@@ -1294,31 +889,21 @@ struct PolySynthVoice
     uint64_t noteOnAge = 0;
 
     std::array<UnisonSubVoice, UnisonSubVoice::maxUnison> subVoices;
-    juce::ADSR ampEnv;
-    juce::ADSR filterEnv;
+    AnalogEnvelope ampEnv;
+    AnalogEnvelope filterEnv;
+    MoogLadder ladderL, ladderR;
 
-    juce::dsp::LadderFilter<float> ladderFilterL;
-    juce::dsp::LadderFilter<float> ladderFilterR;
-
-    void prepare(double sampleRate, int maxBlockSize, int polyIndex)
+    void prepare(double osRate, double controlRate, int polyIndex)
     {
         for (int u = 0; u < UnisonSubVoice::maxUnison; ++u)
-            subVoices[u].prepare(sampleRate, polyIndex, u);
+            subVoices[static_cast<size_t>(u)].prepare(controlRate, polyIndex, u);
 
-        ampEnv.setSampleRate(sampleRate);
-        filterEnv.setSampleRate(sampleRate);
+        ampEnv.setSampleRate(osRate);
+        filterEnv.setSampleRate(osRate);
         ampEnv.reset();
         filterEnv.reset();
-
-        juce::dsp::ProcessSpec monoSpec { sampleRate, static_cast<juce::uint32>(maxBlockSize), 1 };
-        ladderFilterL.prepare(monoSpec);
-        ladderFilterR.prepare(monoSpec);
-        ladderFilterL.setMode(juce::dsp::LadderFilterMode::LPF24);
-        ladderFilterR.setMode(juce::dsp::LadderFilterMode::LPF24);
-        ladderFilterL.setDrive(1.2f);
-        ladderFilterR.setDrive(1.2f);
-        ladderFilterL.reset();
-        ladderFilterR.reset();
+        ladderL.reset();
+        ladderR.reset();
     }
 
     void startNote(int note, float vel, double lastGlobalFreq, bool legatoGlide, uint64_t age)
@@ -1327,6 +912,12 @@ struct PolySynthVoice
         velocity = vel;
         noteOnAge = age;
         targetFreq = juce::MidiMessage::getMidiNoteInHertz(note);
+
+        if (!active)
+        {
+            ladderL.reset();
+            ladderR.reset();
+        }
 
         if (!active && !legatoGlide)
             currentFreq = targetFreq;
@@ -1346,23 +937,58 @@ struct PolySynthVoice
 };
 
 // ==============================================================================
-// Model D-3 AudioProcessor (v2.1.0 - Pad Edition + WT LFO + 50 Pad Wavetables)
+// Parameter-Zeiger einmalig cachen (kein String-Lookup mehr in processBlock)
 // ==============================================================================
-class ModelD3AudioProcessor : public juce::AudioProcessor
+#define MD3_PARAMS(X) \
+    X(polyVoices) X(unisonVoices) X(unisonDetune) X(unisonSpread) \
+    X(osc1On) X(osc1Wave) X(osc1Oct) X(osc1Detune) X(osc1Level) \
+    X(osc2On) X(osc2Wave) X(osc2Oct) X(osc2Detune) X(osc2Level) \
+    X(osc3On) X(osc3Wave) X(osc3Oct) X(osc3Detune) X(osc3Level) \
+    X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
+    X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(wtLevel) \
+    X(analogDrift) X(glide) X(drive) \
+    X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) \
+    X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
+    X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) \
+    X(compOn) X(compThresh) X(compRatio) X(compAttack) X(compRelease) X(compMakeup) \
+    X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain)
+
+struct ParamPtrs
+{
+   #define X(n) std::atomic<float>* n = nullptr;
+    MD3_PARAMS(X)
+   #undef X
+
+    void bind(juce::AudioProcessorValueTreeState& s)
+    {
+       #define X(n) n = s.getRawParameterValue(#n);
+        MD3_PARAMS(X)
+       #undef X
+    }
+};
+
+// ==============================================================================
+// AudioProcessor
+// ==============================================================================
+class ModelD3AudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     ModelD3AudioProcessor()
         : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
           apvts(*this, nullptr, "PARAMETERS", createParameterLayout())
     {
-        for (int i = 0; i < WavetableBank::numBuiltInPresets; ++i)
-            builtInTables[i] = WavetableBank::createBuiltInPreset(i);
+        pp.bind(apvts);
+        heldNotes.reserve(128);
+        arpSorted.reserve(128);
+        arpPattern.reserve(384);
 
-        activeWavetable = builtInTables[0];
-        applyWavetableToAllVoices(activeWavetable);
+        // Nur die erste Wavetable sofort erzeugen, alle anderen bei Bedarf (Message-Thread)
+        publishTable(getBuiltIn(0));
+        appliedPresetIdx = 0;
+        startTimerHz(20);
     }
 
-    ~ModelD3AudioProcessor() override = default;
+    ~ModelD3AudioProcessor() override { stopTimer(); }
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
@@ -1374,34 +1000,29 @@ public:
         juce::StringArray arpRateChoices { "1/4", "1/8", "1/8T", "1/16", "1/32" };
         juce::StringArray arpModeChoices { "Up", "Down", "Up/Down" };
 
-        // Polyphony & Unison
         params.push_back(std::make_unique<juce::AudioParameterInt>("polyVoices", "Polyphony Voices", 1, 8, 8));
         params.push_back(std::make_unique<juce::AudioParameterInt>("unisonVoices", "Unison Voices", 1, 7, 4));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("unisonDetune", "Unison Detune (ct)", 0.0f, 60.0f, 14.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("unisonSpread", "Unison Stereo Spread", 0.0f, 1.0f, 0.85f));
 
-        // Oscillator 1
         params.push_back(std::make_unique<juce::AudioParameterBool>("osc1On", "Osc 1 On", true));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc1Wave", "Osc 1 Wave", waveChoices, 0));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc1Oct", "Osc 1 Octave", octaveChoices, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc1Detune", "Osc 1 Detune (ct)", -50.0f, 50.0f, -4.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc1Level", "Osc 1 Level", 0.0f, 1.0f, 0.65f));
 
-        // Oscillator 2
         params.push_back(std::make_unique<juce::AudioParameterBool>("osc2On", "Osc 2 On", true));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Wave", "Osc 2 Wave", waveChoices, 1));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Oct", "Osc 2 Octave", octaveChoices, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Detune", "Osc 2 Detune (ct)", -50.0f, 50.0f, 4.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Level", "Osc 2 Level", 0.0f, 1.0f, 0.60f));
 
-        // Oscillator 3
         params.push_back(std::make_unique<juce::AudioParameterBool>("osc3On", "Osc 3 On", true));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc3Wave", "Osc 3 Wave", waveChoices, 0));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc3Oct", "Osc 3 Octave", octaveChoices, 1));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Detune", "Osc 3 Detune (ct)", -50.0f, 50.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Level", "Osc 3 Level", 0.0f, 1.0f, 0.50f));
 
-        // Oscillator 4: Wavetable Oscillator (50 Pad Wavetables + WAV Loader + Dedicated LFO)
         params.push_back(std::make_unique<juce::AudioParameterBool>("wtOn", "WT Osc On", true));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("wtPreset", "WT Preset", WavetableBank::getPresetNames(), 0));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("wtOct", "WT Osc Octave", octaveChoices, 2));
@@ -1414,39 +1035,36 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("wtLfoAmt", "WT LFO Amount", -1.0f, 1.0f, 0.35f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("wtLevel", "WT Osc Level", 0.0f, 1.0f, 0.85f));
 
-        // Analog Drift, Glide & Mixer Drive
         params.push_back(std::make_unique<juce::AudioParameterFloat>("analogDrift", "Analog Drift (ct)", 0.0f, 25.0f, 5.5f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("glide", "Glide (ms)", 0.0f, 500.0f, 25.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("drive", "Mixer Drive", 1.0f, 6.0f, 1.6f));
 
-        // 24dB Ladder Filter & Filter Envelope
+        // Filter + Filter-Huellkurve (Contour jetzt in Oktaven: 0..1 = 0..5 Oktaven)
         params.push_back(std::make_unique<juce::AudioParameterFloat>("cutoff", "Filter Cutoff (Hz)",
-            juce::NormalisableRange<float>(20.0f, 18000.0f, 0.1f, 0.3f), 1450.0f));
+            juce::NormalisableRange<float>(20.0f, 18000.0f, 0.1f, 0.3f), 1100.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("resonance", "Filter Emphasis", 0.0f, 0.98f, 0.22f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("contour", "Filter Contour", 0.0f, 1.0f, 0.40f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("contour", "Filter Contour", 0.0f, 1.0f, 0.45f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fAttack", "Filter Attack (s)",
-            juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.65f));
+            juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.004f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fDecay", "Filter Decay (s)",
-            juce::NormalisableRange<float>(0.005f, 5.0f, 0.0001f, 0.4f), 1.40f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("fSustain", "Filter Sustain", 0.0f, 1.0f, 0.55f));
+            juce::NormalisableRange<float>(0.005f, 5.0f, 0.0001f, 0.4f), 0.35f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("fSustain", "Filter Sustain", 0.0f, 1.0f, 0.30f));
 
-        // Loudness (VCA) Envelope (Pad-friendly default swell)
+        // Loudness-Huellkurve (schnellere Standardwerte)
         params.push_back(std::make_unique<juce::AudioParameterFloat>("aAttack", "Amp Attack (s)",
-            juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.45f));
+            juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.010f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("aDecay", "Amp Decay (s)",
-            juce::NormalisableRange<float>(0.005f, 5.0f, 0.0001f, 0.4f), 1.20f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("aSustain", "Amp Sustain", 0.0f, 1.0f, 0.85f));
+            juce::NormalisableRange<float>(0.005f, 5.0f, 0.0001f, 0.4f), 0.40f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("aSustain", "Amp Sustain", 0.0f, 1.0f, 0.80f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("aRelease", "Amp Release (s)",
-            juce::NormalisableRange<float>(0.003f, 6.0f, 0.0001f, 0.4f), 1.35f));
+            juce::NormalisableRange<float>(0.003f, 6.0f, 0.0001f, 0.4f), 0.40f));
 
-        // Arpeggiator
         params.push_back(std::make_unique<juce::AudioParameterBool>("arpOn", "Arpeggiator On", false));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("arpRate", "Arp Rate", arpRateChoices, 2));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("arpMode", "Arp Mode", arpModeChoices, 0));
         params.push_back(std::make_unique<juce::AudioParameterInt>("arpOctaves", "Arp Octaves", 1, 3, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("arpGate", "Arp Gate", 0.1f, 0.95f, 0.75f));
 
-        // Compressor
         params.push_back(std::make_unique<juce::AudioParameterBool>("compOn", "Compressor On", true));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("compThresh", "Comp Threshold (dB)", -40.0f, 0.0f, -15.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("compRatio", "Comp Ratio", 1.0f, 12.0f, 3.2f));
@@ -1454,66 +1072,39 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("compRelease", "Comp Release (ms)", 10.0f, 500.0f, 140.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("compMakeup", "Comp Makeup (dB)", 0.0f, 18.0f, 2.5f));
 
-        // Delay
         params.push_back(std::make_unique<juce::AudioParameterFloat>("delayTime", "Delay Time (ms)", 20.0f, 1200.0f, 420.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("delayFeedback", "Delay Feedback", 0.0f, 0.85f, 0.42f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("delayMix", "Delay Mix", 0.0f, 1.0f, 0.28f));
 
-        // Reverb
         params.push_back(std::make_unique<juce::AudioParameterFloat>("revSize", "Reverb Size", 0.0f, 1.0f, 0.78f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("revDamp", "Reverb Damping", 0.0f, 1.0f, 0.35f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("revMix", "Reverb Mix", 0.0f, 1.0f, 0.38f));
 
-        // Master Volume
         params.push_back(std::make_unique<juce::AudioParameterFloat>("masterGain", "Master Volume", 0.0f, 1.5f, 0.85f));
 
         return { params.begin(), params.end() };
     }
 
-    void selectBuiltInWavetable(int index)
-    {
-        if (index >= 0 && index < WavetableBank::numBuiltInPresets)
-        {
-            lastPresetIdx = index;
-            customWavetable.reset();
-            loadedWavetablePath.clear();
-            applyWavetableToAllVoices(builtInTables[index]);
-        }
-        else if (index == WavetableBank::numBuiltInPresets && customWavetable != nullptr)
-        {
-            lastPresetIdx = index;
-            applyWavetableToAllVoices(customWavetable);
-        }
-    }
-
+    // ---- Wavetable-Verwaltung (nur Message-Thread) ----------------------------
     bool loadWavetableFile(const juce::File& file)
     {
         auto newTable = WavetableBank::loadFromWavFile(file);
-        if (newTable != nullptr)
-        {
-            customWavetable = newTable;
-            loadedWavetablePath = file.getFullPathName();
-            lastPresetIdx = WavetableBank::numBuiltInPresets;
-            applyWavetableToAllVoices(customWavetable);
+        if (newTable == nullptr)
+            return false;
 
-            if (auto* p = apvts.getParameter("wtPreset"))
-                p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(WavetableBank::numBuiltInPresets)));
+        customWavetable = newTable;
+        loadedWavetablePath = file.getFullPathName();
+        appliedPresetIdx = WavetableBank::numBuiltInPresets;
+        publishTable(customWavetable);
 
-            apvts.getParameter("wtOn")->setValueNotifyingHost(1.0f);
-            return true;
-        }
-        return false;
+        if (auto* p = apvts.getParameter("wtPreset"))
+            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(WavetableBank::numBuiltInPresets)));
+        apvts.getParameter("wtOn")->setValueNotifyingHost(1.0f);
+        return true;
     }
 
-    std::shared_ptr<WavetableData> getActiveWavetable() const
-    {
-        return std::atomic_load(&activeWavetable);
-    }
-
-    float getCurrentEffectiveWtPos() const
-    {
-        return currentEffectiveWtPos.load();
-    }
+    std::shared_ptr<WavetableData> getActiveWavetable() const { return std::atomic_load(&activeWavetable); }
+    float getCurrentEffectiveWtPos() const { return currentEffectiveWtPos.load(); }
 
     const juce::String getName() const override { return "Model D-3 Synth"; }
     bool acceptsMidi() const override { return true; }
@@ -1533,17 +1124,15 @@ public:
         wtLfo.prepare(sampleRate);
         wtLfo.reset();
 
+        // Oversampling bleibt: 2x, Polyphase-IIR, Max-Quality
         oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
             2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
         oversampler->initProcessing(static_cast<size_t>(samplesPerBlock));
 
-        double oversampledRate = sampleRate * 2.0;
-        int oversampledBlockSize = samplesPerBlock * 2;
-
+        const double osRate = sampleRate * 2.0;
+        const double controlRate = osRate / static_cast<double>(kChunk);
         for (int p = 0; p < PolySynthVoice::maxPolyVoices; ++p)
-            polyVoices[p].prepare(oversampledRate, oversampledBlockSize, p);
-
-        applyWavetableToAllVoices(getActiveWavetable());
+            polyVoices[static_cast<size_t>(p)].prepare(osRate, controlRate, p);
 
         juce::dsp::ProcessSpec stereoSpec { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2 };
         juce::dsp::ProcessSpec monoSpec   { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 1 };
@@ -1558,7 +1147,7 @@ public:
         delayLineL.reset();
         delayLineR.reset();
 
-        reverb.prepare(stereoSpec);
+        reverb.setSampleRate(sampleRate);
         reverb.reset();
 
         heldNotes.clear();
@@ -1580,43 +1169,34 @@ public:
         juce::ScopedNoDenormals noDenormals;
         const int numSamples = buffer.getNumSamples();
         buffer.clear();
-
         if (numSamples == 0) return;
-
-        int presetIdx = static_cast<int>(*apvts.getRawParameterValue("wtPreset"));
-        if (presetIdx != lastPresetIdx)
-            selectBuiltInWavetable(presetIdx);
 
         double bpm = 120.0;
         if (auto* ph = getPlayHead())
-        {
             if (auto pos = ph->getPosition())
                 if (auto hostBpm = pos->getBpm())
                     if (*hostBpm > 10.0) bpm = *hostBpm;
-        }
 
-        const int maxAllowedPoly = juce::jlimit(1, PolySynthVoice::maxPolyVoices,
-            static_cast<int>(*apvts.getRawParameterValue("polyVoices")));
+        const int maxAllowedPoly = juce::jlimit(1, PolySynthVoice::maxPolyVoices, static_cast<int>(pp.polyVoices->load()));
+        const bool arpEnabled = pp.arpOn->load() > 0.5f;
 
-        // 1. Polyphones MIDI Input Handling
+        // 1. MIDI
         for (const auto metadata : midiMessages)
         {
             const auto msg = metadata.getMessage();
             if (msg.isNoteOn())
             {
-                int note = msg.getNoteNumber();
+                const int note = msg.getNoteNumber();
                 heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
                 heldNotes.push_back(note);
-
-                if (*apvts.getRawParameterValue("arpOn") < 0.5f)
+                if (!arpEnabled)
                     triggerPolyNoteOn(note, msg.getFloatVelocity(), maxAllowedPoly);
             }
             else if (msg.isNoteOff())
             {
-                int note = msg.getNoteNumber();
+                const int note = msg.getNoteNumber();
                 heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
-
-                if (*apvts.getRawParameterValue("arpOn") < 0.5f)
+                if (!arpEnabled)
                 {
                     triggerPolyNoteOff(note);
                     if (maxAllowedPoly == 1 && !heldNotes.empty())
@@ -1626,13 +1206,11 @@ public:
             else if (msg.isAllNotesOff() || msg.isAllSoundOff())
             {
                 heldNotes.clear();
-                for (auto& v : polyVoices)
-                    v.stopNote();
+                for (auto& v : polyVoices) v.stopNote();
             }
         }
 
         // 2. Arpeggiator
-        bool arpEnabled = *apvts.getRawParameterValue("arpOn") > 0.5f;
         if (arpEnabled)
         {
             if (heldNotes.empty())
@@ -1647,16 +1225,12 @@ public:
             }
             else
             {
-                int rateIdx = static_cast<int>(*apvts.getRawParameterValue("arpRate"));
-                double div = 4.0;
-                if (rateIdx == 0) div = 1.0;
-                else if (rateIdx == 1) div = 2.0;
-                else if (rateIdx == 2) div = 3.0;
-                else if (rateIdx == 3) div = 4.0;
-                else if (rateIdx == 4) div = 8.0;
+                const int rateIdx = static_cast<int>(pp.arpRate->load());
+                static const double divs[5] = { 1.0, 2.0, 3.0, 4.0, 8.0 };
+                const double div = divs[juce::jlimit(0, 4, rateIdx)];
 
-                double samplesPerStep = (currentSampleRate * 60.0) / (bpm * div);
-                double gateRatio = *apvts.getRawParameterValue("arpGate");
+                const double samplesPerStep = (currentSampleRate * 60.0) / (bpm * div);
+                const double gateRatio = pp.arpGate->load();
 
                 arpCounter += numSamples;
                 if (arpCounter >= samplesPerStep || !arpNoteActive)
@@ -1664,17 +1238,17 @@ public:
                     if (arpCounter >= samplesPerStep)
                         arpCounter -= samplesPerStep;
 
-                    std::vector<int> sortedNotes = heldNotes;
-                    std::sort(sortedNotes.begin(), sortedNotes.end());
+                    arpSorted = heldNotes;
+                    std::sort(arpSorted.begin(), arpSorted.end());
 
-                    int octaves = static_cast<int>(*apvts.getRawParameterValue("arpOctaves"));
-                    std::vector<int> pattern;
+                    const int octaves = static_cast<int>(pp.arpOctaves->load());
+                    arpPattern.clear();
                     for (int o = 0; o < octaves; ++o)
-                        for (int n : sortedNotes)
-                            pattern.push_back(juce::jlimit(0, 127, n + o * 12));
+                        for (int n : arpSorted)
+                            arpPattern.push_back(juce::jlimit(0, 127, n + o * 12));
 
-                    int mode = static_cast<int>(*apvts.getRawParameterValue("arpMode"));
-                    int patSize = static_cast<int>(pattern.size());
+                    const int mode = static_cast<int>(pp.arpMode->load());
+                    const int patSize = static_cast<int>(arpPattern.size());
 
                     if (patSize == 1)
                         arpStep = 0;
@@ -1688,19 +1262,11 @@ public:
                     else
                     {
                         arpStep += arpDirection;
-                        if (arpStep >= patSize)
-                        {
-                            arpStep = std::max(0, patSize - 2);
-                            arpDirection = -1;
-                        }
-                        else if (arpStep < 0)
-                        {
-                            arpStep = std::min(patSize - 1, 1);
-                            arpDirection = 1;
-                        }
+                        if (arpStep >= patSize) { arpStep = std::max(0, patSize - 2); arpDirection = -1; }
+                        else if (arpStep < 0)   { arpStep = std::min(patSize - 1, 1); arpDirection = 1; }
                     }
 
-                    int trigNote = pattern[static_cast<size_t>(arpStep)];
+                    const int trigNote = arpPattern[static_cast<size_t>(arpStep)];
                     triggerPolyNoteOn(trigNote, 0.9f, maxAllowedPoly);
                     lastArpNote = trigNote;
                     arpNoteActive = true;
@@ -1712,30 +1278,17 @@ public:
             }
         }
 
-        // 3. Wavetable LFO & Globale Parameter berechnen
-        float wtLfoRate = *apvts.getRawParameterValue("wtLfoRate");
-        int wtLfoWave   = static_cast<int>(*apvts.getRawParameterValue("wtLfoWave"));
-        float wtLfoAmt  = *apvts.getRawParameterValue("wtLfoAmt");
-        float lfoModVal = wtLfo.processBlock(numSamples, wtLfoRate, wtLfoWave) * wtLfoAmt * 0.5f;
+        // 3. Globale Parameter (einmal pro Block)
+        const float lfoModVal = wtLfo.processBlock(numSamples, pp.wtLfoRate->load(),
+                                                   static_cast<int>(pp.wtLfoWave->load()))
+                              * pp.wtLfoAmt->load() * 0.5f;
 
-        juce::ADSR::Parameters ampParams {
-            *apvts.getRawParameterValue("aAttack"),
-            *apvts.getRawParameterValue("aDecay"),
-            *apvts.getRawParameterValue("aSustain"),
-            *apvts.getRawParameterValue("aRelease")
-        };
+        const float aA = pp.aAttack->load(), aD = pp.aDecay->load(), aS = pp.aSustain->load(), aR = pp.aRelease->load();
+        const float fA = pp.fAttack->load(), fD = pp.fDecay->load(), fS = pp.fSustain->load();
 
-        juce::ADSR::Parameters filtParams {
-            *apvts.getRawParameterValue("fAttack"),
-            *apvts.getRawParameterValue("fDecay"),
-            *apvts.getRawParameterValue("fSustain"),
-            *apvts.getRawParameterValue("aRelease")
-        };
-
-        const int numUnison = juce::jlimit(1, UnisonSubVoice::maxUnison,
-            static_cast<int>(*apvts.getRawParameterValue("unisonVoices")));
-        const double maxUnisonDetune = static_cast<double>(*apvts.getRawParameterValue("unisonDetune"));
-        const float unisonSpread = *apvts.getRawParameterValue("unisonSpread");
+        const int numUnison = juce::jlimit(1, UnisonSubVoice::maxUnison, static_cast<int>(pp.unisonVoices->load()));
+        const double maxUnisonDetune = static_cast<double>(pp.unisonDetune->load());
+        const float unisonSpread = pp.unisonSpread->load();
 
         std::array<double, UnisonSubVoice::maxUnison> voiceDetuneCents {};
         std::array<float, UnisonSubVoice::maxUnison> voicePanL {};
@@ -1743,7 +1296,6 @@ public:
 
         if (numUnison == 1)
         {
-            voiceDetuneCents[0] = 0.0;
             voicePanL[0] = 0.70710678f;
             voicePanR[0] = 0.70710678f;
         }
@@ -1751,207 +1303,187 @@ public:
         {
             for (int u = 0; u < numUnison; ++u)
             {
-                double normPos = (2.0 * static_cast<double>(u) / static_cast<double>(numUnison - 1)) - 1.0;
-                double curvedDetune = std::copysign(std::pow(std::abs(normPos), 1.15), normPos);
-                voiceDetuneCents[u] = curvedDetune * maxUnisonDetune;
+                const double normPos = (2.0 * u / static_cast<double>(numUnison - 1)) - 1.0;
+                const double curved = std::copysign(std::pow(std::abs(normPos), 1.15), normPos);
+                voiceDetuneCents[static_cast<size_t>(u)] = curved * maxUnisonDetune;
 
-                float panAngle = static_cast<float>((normPos * unisonSpread + 1.0) * 0.25 * juce::MathConstants<double>::pi);
-                voicePanL[u] = std::cos(panAngle);
-                voicePanR[u] = std::sin(panAngle);
+                const float panAngle = static_cast<float>((normPos * unisonSpread + 1.0) * 0.25 * juce::MathConstants<double>::pi);
+                voicePanL[static_cast<size_t>(u)] = std::cos(panAngle);
+                voicePanR[static_cast<size_t>(u)] = std::sin(panAngle);
             }
         }
 
         const float unisonGainComp = 1.0f / std::sqrt(static_cast<float>(numUnison));
         const float polyGainComp = 0.52f;
 
-        bool oscOn[3] = {
-            *apvts.getRawParameterValue("osc1On") > 0.5f,
-            *apvts.getRawParameterValue("osc2On") > 0.5f,
-            *apvts.getRawParameterValue("osc3On") > 0.5f
-        };
-        int oscWave[3] = {
-            static_cast<int>(*apvts.getRawParameterValue("osc1Wave")),
-            static_cast<int>(*apvts.getRawParameterValue("osc2Wave")),
-            static_cast<int>(*apvts.getRawParameterValue("osc3Wave"))
-        };
-        int oscOct[3] = {
-            static_cast<int>(*apvts.getRawParameterValue("osc1Oct")),
-            static_cast<int>(*apvts.getRawParameterValue("osc2Oct")),
-            static_cast<int>(*apvts.getRawParameterValue("osc3Oct"))
-        };
-        float oscDetune[3] = {
-            *apvts.getRawParameterValue("osc1Detune"),
-            *apvts.getRawParameterValue("osc2Detune"),
-            *apvts.getRawParameterValue("osc3Detune")
-        };
-        float oscLevel[3] = {
-            *apvts.getRawParameterValue("osc1Level"),
-            *apvts.getRawParameterValue("osc2Level"),
-            *apvts.getRawParameterValue("osc3Level")
-        };
+        const float oscLevel[3] = { pp.osc1Level->load(), pp.osc2Level->load(), pp.osc3Level->load() };
+        const bool oscActive[3] = {
+            pp.osc1On->load() > 0.5f && oscLevel[0] > 0.0005f,
+            pp.osc2On->load() > 0.5f && oscLevel[1] > 0.0005f,
+            pp.osc3On->load() > 0.5f && oscLevel[2] > 0.0005f };
+        const int oscWave[3] = { static_cast<int>(pp.osc1Wave->load()), static_cast<int>(pp.osc2Wave->load()), static_cast<int>(pp.osc3Wave->load()) };
+        const int oscOct[3]  = { static_cast<int>(pp.osc1Oct->load()),  static_cast<int>(pp.osc2Oct->load()),  static_cast<int>(pp.osc3Oct->load()) };
+        const float oscDetune[3] = { pp.osc1Detune->load(), pp.osc2Detune->load(), pp.osc3Detune->load() };
 
-        bool wtOn     = *apvts.getRawParameterValue("wtOn") > 0.5f;
-        int wtOct     = static_cast<int>(*apvts.getRawParameterValue("wtOct"));
-        float wtDet   = *apvts.getRawParameterValue("wtDetune");
-        float wtPos   = *apvts.getRawParameterValue("wtPos");
-        float wtEnv   = *apvts.getRawParameterValue("wtEnvAmt");
-        float wtLevel = *apvts.getRawParameterValue("wtLevel");
+        const float wtLevel = pp.wtLevel->load();
+        const bool wtOn = pp.wtOn->load() > 0.5f && wtLevel > 0.0005f;
+        const int wtOct = static_cast<int>(pp.wtOct->load());
+        const float wtDet = pp.wtDetune->load();
+        const float wtPos = pp.wtPos->load();
+        const float wtEnv = pp.wtEnvAmt->load();
 
-        const double octMults[5] = { 0.25, 0.5, 1.0, 2.0, 4.0 };
-        double osSampleRate = currentSampleRate * 2.0;
-        float glideMs = *apvts.getRawParameterValue("glide");
-        double glideCoeff = (glideMs <= 0.5f) ? 1.0 : (1.0 - std::exp(-1.0 / (osSampleRate * (glideMs * 0.001))));
-        double driftAmountCents = static_cast<double>(*apvts.getRawParameterValue("analogDrift"));
-        const double oscDriftScale[3] = { 0.85, 1.05, 1.20 };
+        static const double octMults[5] = { 0.25, 0.5, 1.0, 2.0, 4.0 };
+        const double osRate = currentSampleRate * 2.0;
+        const float glideMs = pp.glide->load();
+        const double glideChunkCoeff = (glideMs <= 0.5f) ? 1.0
+            : (1.0 - std::exp(-static_cast<double>(kChunk) / (osRate * (glideMs * 0.001))));
+        const float driftCents = pp.analogDrift->load();
+        static const float oscDriftScale[3] = { 0.85f, 1.05f, 1.20f };
 
-        float drive = *apvts.getRawParameterValue("drive");
-        float driveNorm = 1.0f / std::tanh(drive);
-        float baseCutoff = *apvts.getRawParameterValue("cutoff");
-        float resonance = *apvts.getRawParameterValue("resonance");
-        float contour = *apvts.getRawParameterValue("contour");
+        const float drive = pp.drive->load();
+        const float driveNorm = 1.0f / fastTanh(drive);
+        const float baseCutoff = pp.cutoff->load();
+        const float resK = pp.resonance->load() * 4.0f;
+        const float contourOct = pp.contour->load() * 5.0f;
 
-        // 4. Polyphone Stimmen im 2x Oversampling-Raum rendern & summieren
-        juce::dsp::AudioBlock<float> stereoBlock(buffer);
-        auto osBlock = oversampler->processSamplesUp(stereoBlock);
-        const int osNumSamples = static_cast<int>(osBlock.getNumSamples());
+        // Wavetable einmal pro Block holen (kein Lock im Sample-Loop)
+        const auto table = std::atomic_load(&activeWavetable);
+        const WavetableData* tablePtr = table.get();
 
-        juce::AudioBuffer<float> voiceOsBuffer(2, osNumSamples);
-        juce::dsp::AudioBlock<float> voiceOsBlock(voiceOsBuffer);
-        auto voiceLeftBlock  = voiceOsBlock.getSingleChannelBlock(0);
-        auto voiceRightBlock = voiceOsBlock.getSingleChannelBlock(1);
-
-        auto* outOsL = osBlock.getChannelPointer(0);
-        auto* outOsR = osBlock.getChannelPointer(1);
+        bool anyVoiceActive = false;
+        for (auto& pv : polyVoices) anyVoiceActive = anyVoiceActive || pv.active;
 
         float latestWtPosForGui = juce::jlimit(0.0f, 1.0f, wtPos + lfoModVal);
-        bool anyVoiceActive = false;
 
-        for (int p = 0; p < PolySynthVoice::maxPolyVoices; ++p)
+        // 4. Rendern im 2x Oversampling-Raum
+        juce::dsp::AudioBlock<float> stereoBlock(buffer);
+
+        if (anyVoiceActive)
         {
-            auto& pv = polyVoices[p];
-            if (!pv.active)
-                continue;
+            auto osBlock = oversampler->processSamplesUp(stereoBlock);
+            const int osN = static_cast<int>(osBlock.getNumSamples());
+            float* outL = osBlock.getChannelPointer(0);
+            float* outR = osBlock.getChannelPointer(1);
 
-            anyVoiceActive = true;
-            pv.ampEnv.setParameters(ampParams);
-            pv.filterEnv.setParameters(filtParams);
-
-            auto* vL = voiceOsBuffer.getWritePointer(0);
-            auto* vR = voiceOsBuffer.getWritePointer(1);
-
-            float fEnvVal = 0.0f;
-            for (int s = 0; s < osNumSamples; ++s)
-                fEnvVal = pv.filterEnv.getNextSample();
-
-            float effectiveWtPos = juce::jlimit(0.0f, 1.0f, wtPos + fEnvVal * wtEnv + lfoModVal);
-            latestWtPosForGui = effectiveWtPos;
-
-            for (int s = 0; s < osNumSamples; ++s)
+            for (auto& pv : polyVoices)
             {
-                pv.currentFreq += (pv.targetFreq - pv.currentFreq) * glideCoeff;
+                if (!pv.active) continue;
 
-                float sumL = 0.0f;
-                float sumR = 0.0f;
+                pv.ampEnv.setParameters(aA, aD, aS, aR);
+                pv.filterEnv.setParameters(fA, fD, fS, aR);
 
                 for (int u = 0; u < numUnison; ++u)
-                {
-                    auto& sub = pv.subVoices[u];
-                    double uDetune = voiceDetuneCents[u];
-                    float subSample = 0.0f;
-
                     for (int o = 0; o < 3; ++o)
+                        pv.subVoices[static_cast<size_t>(u)].oscs[o].setWaveform(oscWave[o]);
+
+                float g = 0.0f;
+                WtFrameRef wtRef;
+
+                for (int c0 = 0; c0 < osN; c0 += kChunk)
+                {
+                    const int cn = std::min(kChunk, osN - c0);
+
+                    // --- Controlrate: Glide, Drift, Pitch, Wavetable-Position ---
+                    pv.currentFreq += (pv.targetFreq - pv.currentFreq) * glideChunkCoeff;
+
+                    const float effPos = juce::jlimit(0.0f, 1.0f, wtPos + pv.filterEnv.getLevel() * wtEnv + lfoModVal);
+                    latestWtPosForGui = effPos;
+                    const bool wtActive = wtOn && wtRef.set(tablePtr, effPos);
+
+                    for (int u = 0; u < numUnison; ++u)
                     {
-                        double currentDrift = sub.driftGens[o].getNextDriftCents(driftAmountCents * oscDriftScale[o]);
-                        if (!oscOn[o]) continue;
+                        auto& sub = pv.subVoices[static_cast<size_t>(u)];
+                        const double uDet = voiceDetuneCents[static_cast<size_t>(u)];
 
-                        sub.oscs[o].setWaveform(oscWave[o]);
-                        double totalDetuneCents = static_cast<double>(oscDetune[o]) + uDetune + currentDrift;
-                        double detuneFactor = std::pow(2.0, totalDetuneCents / 1200.0);
+                        for (int o = 0; o < 3; ++o)
+                        {
+                            if (!oscActive[o]) continue;
+                            const double cents = static_cast<double>(oscDetune[o]) + uDet
+                                               + sub.driftGens[o].next(driftCents * oscDriftScale[o]);
+                            sub.oscs[o].setPhaseInc(pv.currentFreq * octMults[oscOct[o]] * std::exp2(cents / 1200.0) / osRate);
+                        }
 
-                        sub.oscs[o].setFrequency(pv.currentFreq * octMults[oscOct[o]] * detuneFactor);
-                        subSample += sub.oscs[o].processSample() * oscLevel[o];
+                        if (wtActive)
+                        {
+                            const double cents = static_cast<double>(wtDet) + uDet + sub.wtDriftGen.next(driftCents * 0.5f);
+                            sub.wtOsc.setPhaseInc(pv.currentFreq * octMults[wtOct] * std::exp2(cents / 1200.0) / osRate);
+                        }
                     }
 
-                    double wtDrift = sub.wtDriftGen.getNextDriftCents(driftAmountCents * 0.5);
-                    if (wtOn)
+                    // --- Samplerate: Oszillatoren, Sattigung, Filter, VCA ---
+                    for (int s = c0; s < c0 + cn; ++s)
                     {
-                        double wtDetFactor = std::pow(2.0, (static_cast<double>(wtDet) + uDetune + wtDrift) / 1200.0);
-                        sub.wtOsc.setFrequency(pv.currentFreq * octMults[wtOct] * wtDetFactor);
-                        subSample += sub.wtOsc.processSample(effectiveWtPos) * wtLevel;
-                    }
+                        float sumL = 0.0f, sumR = 0.0f;
 
-                    sumL += subSample * voicePanL[u];
-                    sumR += subSample * voicePanR[u];
+                        for (int u = 0; u < numUnison; ++u)
+                        {
+                            auto& sub = pv.subVoices[static_cast<size_t>(u)];
+                            float x = 0.0f;
+
+                            for (int o = 0; o < 3; ++o)
+                                if (oscActive[o])
+                                    x += sub.oscs[o].processSample() * oscLevel[o];
+
+                            if (wtActive)
+                                x += sub.wtOsc.processSample(wtRef) * wtLevel;
+
+                            sumL += x * voicePanL[static_cast<size_t>(u)];
+                            sumR += x * voicePanR[static_cast<size_t>(u)];
+                        }
+
+                        const float envA = pv.ampEnv.getNextSample() * pv.velocity;
+                        const float envF = pv.filterEnv.getNextSample();
+
+                        // Cutoff folgt der Huellkurve alle 8 Samples (ohne Glaettung -> sofortiger Zugriff)
+                        if ((s & 7) == 0)
+                            g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct), static_cast<float>(osRate));
+
+                        const float inL = fastTanh(sumL * unisonGainComp * drive) * driveNorm;
+                        const float inR = fastTanh(sumR * unisonGainComp * drive) * driveNorm;
+
+                        // Moog-Signalweg: Mixer -> VCF -> VCA
+                        outL[s] += pv.ladderL.process(inL, g, resK) * envA * polyGainComp;
+                        outR[s] += pv.ladderR.process(inR, g, resK) * envA * polyGainComp;
+                    }
                 }
 
-                float envVal = pv.ampEnv.getNextSample() * pv.velocity;
-                float sL = (std::tanh(sumL * unisonGainComp * drive) * driveNorm) * envVal;
-                float sR = (std::tanh(sumR * unisonGainComp * drive) * driveNorm) * envVal;
-
-                vL[s] = sL;
-                vR[s] = sR;
+                if (!pv.ampEnv.isActive())
+                    pv.active = false;
             }
 
-            float modCutoff = juce::jlimit(20.0f, 18500.0f, baseCutoff + fEnvVal * contour * 12000.0f);
-            pv.ladderFilterL.setCutoffFrequencyHz(modCutoff);
-            pv.ladderFilterR.setCutoffFrequencyHz(modCutoff);
-            pv.ladderFilterL.setResonance(resonance);
-            pv.ladderFilterR.setResonance(resonance);
-
-            pv.ladderFilterL.process(juce::dsp::ProcessContextReplacing<float>(voiceLeftBlock));
-            pv.ladderFilterR.process(juce::dsp::ProcessContextReplacing<float>(voiceRightBlock));
-
-            for (int s = 0; s < osNumSamples; ++s)
-            {
-                outOsL[s] += vL[s] * polyGainComp;
-                outOsR[s] += vR[s] * polyGainComp;
-            }
-
-            if (!pv.ampEnv.isActive())
-                pv.active = false;
+            oversampler->processSamplesDown(stereoBlock);
         }
 
-        if (!anyVoiceActive)
-            latestWtPosForGui = juce::jlimit(0.0f, 1.0f, wtPos + lfoModVal);
-
         currentEffectiveWtPos.store(latestWtPosForGui);
-
-        oversampler->processSamplesDown(stereoBlock);
 
         auto* leftPtr  = buffer.getWritePointer(0);
         auto* rightPtr = buffer.getWritePointer(1);
 
-        // 5. VCA Compressor
-        if (*apvts.getRawParameterValue("compOn") > 0.5f)
+        // 5. Kompressor
+        if (pp.compOn->load() > 0.5f)
         {
-            compressor.setThreshold(*apvts.getRawParameterValue("compThresh"));
-            compressor.setRatio(*apvts.getRawParameterValue("compRatio"));
-            compressor.setAttack(*apvts.getRawParameterValue("compAttack"));
-            compressor.setRelease(*apvts.getRawParameterValue("compRelease"));
-
+            compressor.setThreshold(pp.compThresh->load());
+            compressor.setRatio(pp.compRatio->load());
+            compressor.setAttack(pp.compAttack->load());
+            compressor.setRelease(pp.compRelease->load());
             compressor.process(juce::dsp::ProcessContextReplacing<float>(stereoBlock));
-
-            float makeupGain = juce::Decibels::decibelsToGain(*apvts.getRawParameterValue("compMakeup"));
-            buffer.applyGain(makeupGain);
+            buffer.applyGain(juce::Decibels::decibelsToGain(pp.compMakeup->load()));
         }
 
-        // 6. Stereo Ping-Pong / Dual Delay
-        float delayMs = *apvts.getRawParameterValue("delayTime");
-        float delayFb = *apvts.getRawParameterValue("delayFeedback");
-        float delayMix = *apvts.getRawParameterValue("delayMix");
-
+        // 6. Stereo Cross-Feedback Delay
+        const float delayMix = pp.delayMix->load();
         if (delayMix > 0.001f)
         {
-            float delaySamplesL = static_cast<float>((delayMs * 0.001) * currentSampleRate);
-            float delaySamplesR = static_cast<float>((delayMs * 0.001 * 1.12) * currentSampleRate);
+            const float delayMs = pp.delayTime->load();
+            const float delayFb = pp.delayFeedback->load();
+            const float dSamplesL = static_cast<float>((delayMs * 0.001) * currentSampleRate);
+            const float dSamplesR = static_cast<float>((delayMs * 0.001 * 1.12) * currentSampleRate);
 
             for (int i = 0; i < numSamples; ++i)
             {
-                float inL = leftPtr[i];
-                float inR = rightPtr[i];
-
-                float delL = delayLineL.popSample(0, delaySamplesL, true);
-                float delR = delayLineR.popSample(0, delaySamplesR, true);
+                const float inL = leftPtr[i], inR = rightPtr[i];
+                const float delL = delayLineL.popSample(0, dSamplesL, true);
+                const float delR = delayLineR.popSample(0, dSamplesR, true);
 
                 delayLineL.pushSample(0, inL + delR * delayFb);
                 delayLineR.pushSample(0, inR + delL * delayFb);
@@ -1961,13 +1493,13 @@ public:
             }
         }
 
-        // 7. Stereo Reverb
-        float revMix = *apvts.getRawParameterValue("revMix");
+        // 7. Reverb
+        const float revMix = pp.revMix->load();
         if (revMix > 0.001f)
         {
             juce::Reverb::Parameters rp;
-            rp.roomSize = *apvts.getRawParameterValue("revSize");
-            rp.damping  = *apvts.getRawParameterValue("revDamp");
+            rp.roomSize = pp.revSize->load();
+            rp.damping  = pp.revDamp->load();
             rp.wetLevel = revMix;
             rp.dryLevel = 1.0f - (revMix * 0.4f);
             rp.width    = 1.0f;
@@ -1975,16 +1507,13 @@ public:
             reverb.processStereo(leftPtr, rightPtr, numSamples);
         }
 
-        // 8. Master Volume & Safety Limiter
-        float master = *apvts.getRawParameterValue("masterGain");
+        // 8. Master + Safety-Limiter
+        const float master = pp.masterGain->load();
         for (int ch = 0; ch < 2; ++ch)
         {
-            auto* data = buffer.getWritePointer(ch);
+            auto* d = buffer.getWritePointer(ch);
             for (int i = 0; i < numSamples; ++i)
-            {
-                float v = data[i] * master;
-                data[i] = juce::jlimit(-1.0f, 1.0f, v);
-            }
+                d[i] = juce::jlimit(-1.0f, 1.0f, d[i] * master);
         }
     }
 
@@ -2005,7 +1534,7 @@ public:
         if (xmlState != nullptr && xmlState->hasTagName(apvts.state.getType()))
         {
             auto tree = juce::ValueTree::fromXml(*xmlState);
-            juce::String path = tree.getProperty("loadedWavetablePath", "").toString();
+            const juce::String path = tree.getProperty("loadedWavetablePath", "").toString();
             apvts.replaceState(tree);
             if (path.isNotEmpty())
                 loadWavetableFile(juce::File(path));
@@ -2015,28 +1544,62 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
 private:
-    void applyWavetableToAllVoices(std::shared_ptr<WavetableData> table)
+    // Preset-Wechsel laeuft ueber den Message-Thread (Timer) - die Tabelle wird bei
+    // Bedarf erzeugt, nie im Audio-Thread.
+    void timerCallback() override
+    {
+        const int idx = static_cast<int>(pp.wtPreset->load());
+        if (idx == appliedPresetIdx)
+            return;
+
+        if (idx < WavetableBank::numBuiltInPresets)
+        {
+            customWavetable.reset();
+            loadedWavetablePath.clear();
+            publishTable(getBuiltIn(idx));
+        }
+        else if (customWavetable != nullptr)
+        {
+            publishTable(customWavetable);
+        }
+        appliedPresetIdx = idx;
+    }
+
+    std::shared_ptr<WavetableData> getBuiltIn(int idx)
+    {
+        auto& slot = builtInTables[static_cast<size_t>(idx)];
+        if (slot == nullptr)
+            slot = WavetableBank::createBuiltInPreset(idx);
+        return slot;
+    }
+
+    void publishTable(std::shared_ptr<WavetableData> table)
     {
         if (table == nullptr) return;
-        std::atomic_store(&activeWavetable, table);
-        for (auto& pv : polyVoices)
-            for (auto& sub : pv.subVoices)
-                sub.wtOsc.setTable(table);
+        auto old = std::atomic_exchange(&activeWavetable, table);
+        if (old != nullptr)
+        {
+            // Alte Tabelle am Leben halten, damit sie nie im Audio-Thread freigegeben wird
+            retiredTables.push_back(std::move(old));
+            if (retiredTables.size() > 16)
+                retiredTables.erase(retiredTables.begin());
+        }
     }
 
     void triggerPolyNoteOn(int midiNote, float velocity, int maxAllowedPoly)
     {
         globalNoteCounter++;
-        double newFreq = juce::MidiMessage::getMidiNoteInHertz(midiNote);
+        const double newFreq = juce::MidiMessage::getMidiNoteInHertz(midiNote);
 
         for (int i = maxAllowedPoly; i < PolySynthVoice::maxPolyVoices; ++i)
-            polyVoices[i].active = false;
+            polyVoices[static_cast<size_t>(i)].active = false;
 
         for (int i = 0; i < maxAllowedPoly; ++i)
         {
-            if (polyVoices[i].active && polyVoices[i].midiNote == midiNote)
+            auto& v = polyVoices[static_cast<size_t>(i)];
+            if (v.active && v.midiNote == midiNote)
             {
-                polyVoices[i].startNote(midiNote, velocity, lastTriggeredFreq, maxAllowedPoly == 1, globalNoteCounter);
+                v.startNote(midiNote, velocity, lastTriggeredFreq, maxAllowedPoly == 1, globalNoteCounter);
                 lastTriggeredFreq = newFreq;
                 return;
             }
@@ -2044,9 +1607,10 @@ private:
 
         for (int i = 0; i < maxAllowedPoly; ++i)
         {
-            if (!polyVoices[i].active)
+            auto& v = polyVoices[static_cast<size_t>(i)];
+            if (!v.active)
             {
-                polyVoices[i].startNote(midiNote, velocity, lastTriggeredFreq, maxAllowedPoly == 1, globalNoteCounter);
+                v.startNote(midiNote, velocity, lastTriggeredFreq, maxAllowedPoly == 1, globalNoteCounter);
                 lastTriggeredFreq = newFreq;
                 return;
             }
@@ -2055,15 +1619,14 @@ private:
         int oldestIdx = 0;
         uint64_t oldestAge = polyVoices[0].noteOnAge;
         for (int i = 1; i < maxAllowedPoly; ++i)
-        {
-            if (polyVoices[i].noteOnAge < oldestAge)
+            if (polyVoices[static_cast<size_t>(i)].noteOnAge < oldestAge)
             {
-                oldestAge = polyVoices[i].noteOnAge;
+                oldestAge = polyVoices[static_cast<size_t>(i)].noteOnAge;
                 oldestIdx = i;
             }
-        }
 
-        polyVoices[oldestIdx].startNote(midiNote, velocity, lastTriggeredFreq, maxAllowedPoly == 1, globalNoteCounter);
+        polyVoices[static_cast<size_t>(oldestIdx)].startNote(midiNote, velocity, lastTriggeredFreq,
+                                                             maxAllowedPoly == 1, globalNoteCounter);
         lastTriggeredFreq = newFreq;
     }
 
@@ -2074,17 +1637,21 @@ private:
                 pv.stopNote();
     }
 
+    ParamPtrs pp;
+
     double currentSampleRate = 44100.0;
     double lastTriggeredFreq = 110.0;
     uint64_t globalNoteCounter = 0;
 
     WavetableLFO wtLfo;
     std::array<PolySynthVoice, PolySynthVoice::maxPolyVoices> polyVoices;
+
     std::array<std::shared_ptr<WavetableData>, WavetableBank::numBuiltInPresets> builtInTables;
     std::shared_ptr<WavetableData> customWavetable;
     std::shared_ptr<WavetableData> activeWavetable;
+    std::vector<std::shared_ptr<WavetableData>> retiredTables;
     juce::String loadedWavetablePath;
-    int lastPresetIdx = 0;
+    int appliedPresetIdx = 0;
     std::atomic<float> currentEffectiveWtPos { 0.45f };
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
@@ -2093,7 +1660,7 @@ private:
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineR;
     juce::Reverb reverb;
 
-    std::vector<int> heldNotes;
+    std::vector<int> heldNotes, arpSorted, arpPattern;
     double arpCounter = 0.0;
     int arpStep = 0;
     int arpDirection = 1;
@@ -2104,22 +1671,18 @@ private:
 };
 
 // ==============================================================================
-// 2D Wavetable Visualizer Component (Echtzeit-Vorschau aller Frames + aktiver Frame)
+// 2D Wavetable Visualizer (zeichnet nur noch, wenn sich etwas geaendert hat)
 // ==============================================================================
 class Wavetable2DDisplay : public juce::Component, private juce::Timer
 {
 public:
-    explicit Wavetable2DDisplay(ModelD3AudioProcessor& p) : processor(p)
-    {
-        startTimerHz(30);
-    }
+    explicit Wavetable2DDisplay(ModelD3AudioProcessor& p) : processor(p) { startTimerHz(24); }
 
     void paint(juce::Graphics& g) override
     {
         auto bounds = getLocalBounds().toFloat();
         g.setColour(juce::Colour(0xff101318));
         g.fillRoundedRectangle(bounds, 6.0f);
-
         g.setColour(juce::Colour(0xff2e3642));
         g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
 
@@ -2127,15 +1690,16 @@ public:
         auto headerArea = area.removeFromTop(18.0f);
 
         auto table = processor.getActiveWavetable();
-        float morphPos = processor.getCurrentEffectiveWtPos();
+        const float morphPos = processor.getCurrentEffectiveWtPos();
 
         g.setColour(juce::Colour(0xff8fa3bf));
-        g.setFont(juce::Font(12.0f, juce::Font::bold));
-        juce::String title = (table != nullptr) ? table->name : "Keine Wavetable";
-        g.drawText(title, headerArea.removeFromLeft(headerArea.getWidth() * 0.72f), juce::Justification::centredLeft, true);
+        g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+        g.drawText((table != nullptr) ? table->name : juce::String("Keine Wavetable"),
+                   headerArea.removeFromLeft(headerArea.getWidth() * 0.72f), juce::Justification::centredLeft, true);
 
         g.setColour(juce::Colour(0xff4da6ff));
-        g.drawText("Pos: " + juce::String(static_cast<int>(morphPos * 100.0f)) + "%", headerArea, juce::Justification::centredRight, false);
+        g.drawText("Pos: " + juce::String(static_cast<int>(morphPos * 100.0f)) + "%", headerArea,
+                   juce::Justification::centredRight, false);
 
         if (table == nullptr || table->frames.empty())
             return;
@@ -2146,16 +1710,17 @@ public:
         g.setColour(juce::Colour(0xff1f2630));
         g.drawHorizontalLine(static_cast<int>(area.getCentreY()), area.getX(), area.getRight());
 
-        int step = std::max(1, numFrames / 16);
+        const int step = std::max(1, numFrames / 16);
         for (int f = 0; f < numFrames; f += step)
         {
             if (f == activeFrameIdx) continue;
-            float dist = std::abs(static_cast<float>(f - activeFrameIdx)) / static_cast<float>(std::max(1, numFrames));
-            float alpha = juce::jlimit(0.06f, 0.24f, 0.26f * (1.0f - dist));
-            drawWaveformPath(g, table->frames[f], area, juce::Colour(0xff4da6ff).withAlpha(alpha), 1.0f, (f - activeFrameIdx) * 0.12f);
+            const float dist = std::abs(static_cast<float>(f - activeFrameIdx)) / static_cast<float>(std::max(1, numFrames));
+            const float alpha = juce::jlimit(0.06f, 0.24f, 0.26f * (1.0f - dist));
+            drawWaveformPath(g, table->frames[static_cast<size_t>(f)], area,
+                             juce::Colour(0xff4da6ff).withAlpha(alpha), 1.0f, (f - activeFrameIdx) * 0.12f);
         }
 
-        drawWaveformPath(g, table->frames[activeFrameIdx], area, juce::Colour(0xffffaa33), 2.2f, 0.0f);
+        drawWaveformPath(g, table->frames[static_cast<size_t>(activeFrameIdx)], area, juce::Colour(0xffffaa33), 2.2f, 0.0f);
     }
 
 private:
@@ -2169,12 +1734,12 @@ private:
 
         for (int i = 0; i < numPoints; ++i)
         {
-            float normX = static_cast<float>(i) / static_cast<float>(numPoints - 1);
-            int idx = juce::jlimit(0, tableLen - 1, static_cast<int>(normX * static_cast<float>(tableLen - 1)));
-            float sample = juce::jlimit(-1.05f, 1.05f, frame[idx]);
+            const float normX = static_cast<float>(i) / static_cast<float>(numPoints - 1);
+            const int idx = juce::jlimit(0, tableLen - 1, static_cast<int>(normX * static_cast<float>(tableLen - 1)));
+            const float sample = juce::jlimit(-1.05f, 1.05f, frame[static_cast<size_t>(idx)]);
 
-            float x = area.getX() + normX * area.getWidth();
-            float y = area.getCentreY() - sample * (area.getHeight() * 0.44f) + yShift;
+            const float x = area.getX() + normX * area.getWidth();
+            const float y = area.getCentreY() - sample * (area.getHeight() * 0.44f) + yShift;
 
             if (i == 0) path.startNewSubPath(x, y);
             else        path.lineTo(x, y);
@@ -2186,14 +1751,23 @@ private:
 
     void timerCallback() override
     {
-        repaint();
+        auto t = processor.getActiveWavetable();
+        const float m = processor.getCurrentEffectiveWtPos();
+        if (t.get() != lastTable || std::abs(m - lastMorph) > 0.002f)
+        {
+            lastTable = t.get();
+            lastMorph = m;
+            repaint();
+        }
     }
 
     ModelD3AudioProcessor& processor;
+    const WavetableData* lastTable = nullptr;
+    float lastMorph = -1.0f;
 };
 
 // ==============================================================================
-// Custom Editor mit 2D Wavetable Fenster + 50er Preset-Auswahl + WAV-Loader
+// Editor
 // ==============================================================================
 class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
 {
@@ -2246,13 +1820,12 @@ private:
     {
         fileChooser = std::make_unique<juce::FileChooser>(
             "Wavetable WAV-Datei auswaehlen (Serum/Vital 2048-Frame oder Single-Cycle)",
-            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-            "*.wav");
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.wav");
 
-        auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+        const auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
         fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc)
         {
-            auto file = fc.getResult();
+            const auto file = fc.getResult();
             if (file.existsAsFile())
                 audioProcessor.loadWavetableFile(file);
         });
@@ -2276,5 +1849,3 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new ModelD3AudioProcessor();
 }
-ModelD3Synth_v6_1/Plugin.cpp
-ModelD3Synth_v6_1/Plugin.cpp wird angezeigt.
