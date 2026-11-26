@@ -954,7 +954,8 @@ struct PolySynthVoice
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
-    X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain)
+    X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain) \
+    X(noiseOn) X(noiseType) X(noiseLevel)
 
 struct ParamPtrs
 {
@@ -1083,6 +1084,12 @@ public:
 
         params.push_back(std::make_unique<juce::AudioParameterFloat>("masterGain", "Master Volume", 0.0f, 1.5f, 0.85f));
 
+        // Noise Generator (White / Pink)
+        params.push_back(std::make_unique<juce::AudioParameterBool>("noiseOn", "Noise On", false));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("noiseType", "Noise Type",
+            juce::StringArray { "White", "Pink" }, 0));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("noiseLevel", "Noise Level", 0.0f, 1.0f, 0.3f));
+
         return { params.begin(), params.end() };
     }
 
@@ -1160,6 +1167,9 @@ public:
         revSizeSm = pp.revSize->load();
         revDampSm = pp.revDamp->load();
         revMixSm  = pp.revMix->load();
+
+        noiseRng = 0x2F6E2B1Du;
+        pinkB0 = pinkB1 = pinkB2 = 0.0f;
 
         heldNotes.clear();
         arpCounter = 0.0;
@@ -1470,6 +1480,33 @@ public:
         auto* leftPtr  = buffer.getWritePointer(0);
         auto* rightPtr = buffer.getWritePointer(1);
 
+        // Noise Generator (xorshift-White, optional 3-pol-Pink, sehr CPU-guenstig)
+        if (pp.noiseOn->load() > 0.5f)
+        {
+            const float nLevel = pp.noiseLevel->load();
+            const bool pink = static_cast<int>(pp.noiseType->load()) == 1;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                noiseRng ^= noiseRng << 13;
+                noiseRng ^= noiseRng >> 17;
+                noiseRng ^= noiseRng << 5;
+                const float white = static_cast<float>(static_cast<int32_t>(noiseRng)) * (1.0f / 2147483648.0f);
+
+                float n = white;
+                if (pink)
+                {
+                    pinkB0 = 0.99765f * pinkB0 + white * 0.0990460f;
+                    pinkB1 = 0.96300f * pinkB1 + white * 0.2965164f;
+                    pinkB2 = 0.57000f * pinkB2 + white * 1.0526913f;
+                    n = (pinkB0 + pinkB1 + pinkB2 + white * 0.1848f) * 0.05f;
+                }
+
+                leftPtr[i]  += n * nLevel * 0.5f;
+                rightPtr[i] += n * nLevel * 0.5f;
+            }
+        }
+
         // 5. Stereo Chorus (LFO-modulierte Delaylines, gegenphasig L/R)
         const float chorusMix = pp.chorusMix->load();
         if (chorusMix > 0.001f)
@@ -1699,6 +1736,8 @@ private:
     juce::Reverb reverb;
     float revSizeSm = 0.78f, revDampSm = 0.35f, revMixSm = 0.38f;
     float revSmoothK = 0.0f;
+    uint32_t noiseRng = 0x2F6E2B1Du;
+    float pinkB0 = 0.0f, pinkB1 = 0.0f, pinkB2 = 0.0f;
 
     std::vector<int> heldNotes, arpSorted, arpPattern;
     double arpCounter = 0.0;
@@ -1867,7 +1906,8 @@ public:
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
             { "CHORUS", 1, { "chorusRate", "chorusDepth", "chorusMix" } },
             { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
-            { "REVERB", 1, { "revSize", "revDamp", "revMix" } }
+            { "REVERB", 1, { "revSize", "revDamp", "revMix" } },
+            { "NOISE", 1, { "noiseOn", "noiseType", "noiseLevel" } }
         };
 
         juce::StringArray placed;
