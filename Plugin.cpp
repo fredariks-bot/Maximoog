@@ -2254,7 +2254,7 @@ private:
 
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(param))
         {
-            auto combo = std::make_unique<juce::ComboBox>();
+            auto combo = std::make_unique<WheelComboBox>();
             combo->addItemList(choice->choices, 1);
             combo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff232730));
             combo->setColour(juce::ComboBox::textColourId, juce::Colours::lightgrey);
