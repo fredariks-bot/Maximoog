@@ -1070,7 +1070,7 @@ struct PolySynthVoice
     X(analogDrift) X(glide) X(drive) \
     X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) \
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
-    X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) \
+    X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) X(arpHold) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
     X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain) \
     X(noiseOn) X(noiseType) X(noiseLevel)
@@ -1192,6 +1192,7 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterChoice>("arpMode", "Arp Mode", arpModeChoices, 0));
         params.push_back(std::make_unique<juce::AudioParameterInt>("arpOctaves", "Arp Octaves", 1, 3, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("arpGate", "Arp Gate", 0.1f, 0.95f, 0.75f));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("arpHold", "Arp Hold (Latch)", false));
 
         params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusRate", "Chorus Rate (Hz)",
             juce::NormalisableRange<float>(0.05f, 8.0f, 0.01f, 0.5f), 0.8f));
@@ -1337,7 +1338,9 @@ public:
             else if (msg.isNoteOff())
             {
                 const int note = msg.getNoteNumber();
-                heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
+                const bool hold = arpEnabled && pp.arpHold->load() > 0.5f;
+                if (!hold)
+                    heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
                 if (!arpEnabled)
                 {
                     triggerPolyNoteOff(note);
@@ -2028,7 +2031,7 @@ public:
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide" } },
             { "MIXER", 1, { "drive", "masterGain" } },
-            { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
+            { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate", "arpHold" } },
             { "CHORUS", 1, { "chorusRate", "chorusDepth", "chorusMix" } },
             { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
             { "REVERB", 1, { "revSize", "revDamp", "revMix" } },
@@ -2311,11 +2314,6 @@ public:
         addAndMakeVisible(content);
         content.onRelayout = [this]()
         {
-            const float sc = getWidth() / (float) EditorContent::kBaseWidth;
-            const int newH = juce::roundToInt(content.getHeight() * sc);
-            getConstrainer()->setFixedAspectRatio((double) content.getHeight() / (double) EditorContent::kBaseWidth);
-            if (newH > 0 && newH != getHeight())
-                setSize(getWidth(), newH);
             resized();
         };
 
@@ -2341,7 +2339,7 @@ public:
                                     ch > 0 ? getHeight() / (float) ch : 1.0f);
         const int cw = juce::roundToInt(EditorContent::kBaseWidth * sc);
         const int cht = juce::roundToInt(ch * sc);
-        content.setTopLeftPosition((getWidth() - cw) / 2, (getHeight() - cht) / 2);
+        content.setTopLeftPosition((getWidth() - cw) / 2, 0);
         content.setTransform(juce::AffineTransform::scale(sc));
     }
 
