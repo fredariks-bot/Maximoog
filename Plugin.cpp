@@ -1080,7 +1080,7 @@ struct PolySynthVoice
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) X(arpHold) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
     X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain) \
-    X(noiseOn) X(noiseType) X(noiseLevel)
+    X(noiseOn) X(noiseType) X(noiseLevel) X(oversampling)
 
 struct ParamPtrs
 {
@@ -1099,7 +1099,8 @@ struct ParamPtrs
 // ==============================================================================
 // AudioProcessor
 // ==============================================================================
-class ModelD3AudioProcessor : public juce::AudioProcessor, private juce::Timer
+class ModelD3AudioProcessor : public juce::AudioProcessor, private juce::Timer,
+                               private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     ModelD3AudioProcessor()
@@ -1107,6 +1108,7 @@ public:
           apvts(*this, nullptr, "PARAMETERS", createParameterLayout())
     {
         pp.bind(apvts);
+        apvts.addParameterListener("oversampling", this);
         heldNotes.reserve(128);
         arpSorted.reserve(128);
         arpPattern.reserve(384);
@@ -1117,7 +1119,42 @@ public:
         startTimerHz(20);
     }
 
-    ~ModelD3AudioProcessor() override { stopTimer(); }
+    ~ModelD3AudioProcessor() override
+    {
+        apvts.removeParameterListener("oversampling", this);
+        stopTimer();
+    }
+
+    void parameterChanged(const juce::String& parameterID, float newValue) override
+    {
+        if (parameterID != "oversampling")
+            return;
+        juce::WeakReference<ModelD3AudioProcessor> safeThis(this);
+        const int idx = juce::jlimit(0, 2, static_cast<int>(newValue + 0.5f));
+        juce::MessageManager::callAsync([safeThis, idx]()
+        {
+            if (safeThis != nullptr)
+                safeThis->applyOversampling(idx);
+        });
+    }
+
+    void applyOversampling(int choiceIdx)
+    {
+        if (preparedSampleRate <= 0.0)
+            return;
+        osLog2.store(juce::jlimit(1, 3, choiceIdx + 1));
+
+        retiredOversamplers.push_back(std::move(oversampler));
+        oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
+            2, osLog2.load(), juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
+        oversampler->initProcessing(static_cast<size_t>(preparedBlockSize));
+        osPtr.store(oversampler.get());
+
+        const double osRate = preparedSampleRate * static_cast<double>(1u << osLog2.load());
+        const double controlRate = osRate / static_cast<double>(kChunk);
+        for (int p = 0; p < PolySynthVoice::maxPolyVoices; ++p)
+            polyVoices[static_cast<size_t>(p)].prepare(osRate, controlRate, p);
+    }
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
@@ -1225,6 +1262,9 @@ public:
             juce::StringArray { "White", "Pink" }, 0));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("noiseLevel", "Noise Level", 0.0f, 1.0f, 0.3f));
 
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("oversampling", "Oversampling",
+            juce::StringArray { "2x", "4x", "8x" }, 0));
+
         return { params.begin(), params.end() };
     }
 
@@ -1267,12 +1307,17 @@ public:
         wtLfo.prepare(sampleRate);
         wtLfo.reset();
 
-        // Oversampling bleibt: 2x, Polyphase-IIR, Max-Quality
-        oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
-            2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
-        oversampler->initProcessing(static_cast<size_t>(samplesPerBlock));
+        preparedSampleRate = sampleRate;
+        preparedBlockSize = samplesPerBlock;
+        retiredOversamplers.clear();
 
-        const double osRate = sampleRate * 2.0;
+        osLog2.store(juce::jlimit(1, 3, static_cast<int>(pp.oversampling->load()) + 1));
+        oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
+            2, osLog2.load(), juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
+        oversampler->initProcessing(static_cast<size_t>(samplesPerBlock));
+        osPtr.store(oversampler.get());
+
+        const double osRate = sampleRate * static_cast<double>(1u << osLog2.load());
         const double controlRate = osRate / static_cast<double>(kChunk);
         for (int p = 0; p < PolySynthVoice::maxPolyVoices; ++p)
             polyVoices[static_cast<size_t>(p)].prepare(osRate, controlRate, p);
@@ -1513,7 +1558,7 @@ public:
         const float wtEnv = pp.wtEnvAmt->load();
 
         static const double octMults[5] = { 0.25, 0.5, 1.0, 2.0, 4.0 };
-        const double osRate = currentSampleRate * 2.0;
+        const double osRate = currentSampleRate * static_cast<double>(1u << osLog2.load());
         const float glideMs = pp.glide->load();
         const double glideChunkCoeff = (glideMs <= 0.5f) ? 1.0
             : (1.0 - std::exp(-static_cast<double>(kChunk) / (osRate * (glideMs * 0.001))));
@@ -1543,7 +1588,7 @@ public:
 
         if (anyVoiceActive)
         {
-            auto osBlock = oversampler->processSamplesUp(stereoBlock);
+            auto osBlock = osPtr.load()->processSamplesUp(stereoBlock);
             const int osN = static_cast<int>(osBlock.getNumSamples());
             float* outL = osBlock.getChannelPointer(0);
             float* outR = osBlock.getChannelPointer(1);
@@ -1645,7 +1690,7 @@ public:
                     pv.active = false;
             }
 
-            oversampler->processSamplesDown(stereoBlock);
+            osPtr.load()->processSamplesDown(stereoBlock);
         }
 
         currentEffectiveWtPos.store(latestWtPosForGui);
@@ -1859,6 +1904,11 @@ private:
     ParamPtrs pp;
 
     double currentSampleRate = 44100.0;
+    std::atomic<int> osLog2 { 1 };
+    std::atomic<juce::dsp::Oversampling<float>*> osPtr { nullptr };
+    double preparedSampleRate = 0.0;
+    int preparedBlockSize = 0;
+    std::vector<std::unique_ptr<juce::dsp::Oversampling<float>>> retiredOversamplers;
     double lastTriggeredFreq = 110.0;
     uint64_t globalNoteCounter = 0;
 
@@ -1892,6 +1942,7 @@ private:
     int lastArpNote = 60;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModelD3AudioProcessor)
+    JUCE_DECLARE_WEAK_REFERENCEABLE(ModelD3AudioProcessor)
 };
 
 // ==============================================================================
@@ -2062,7 +2113,7 @@ public:
             { "FILTER", 0, { "cutoff", "resonance", "contour" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain", "fRelease" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
-            { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide" } },
+            { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide", "oversampling" } },
             { "MIXER", 1, { "drive", "masterGain" } },
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate", "arpHold" } },
             { "CHORUS", 1, { "chorusRate", "chorusDepth", "chorusMix" } },
