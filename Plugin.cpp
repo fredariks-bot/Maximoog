@@ -931,7 +931,9 @@ struct MoogLadder
         s2 += g * (s1 - s2);
         s3 += g * (s2 - s3);
         s4 += g * (s3 - s4);
-        return s4;
+        // Resonanz-Kompensation: DC-Verstaerkung des Ladders ist 1/(1+k); (1+k) gleicht den
+        // Bassverlust bei hoher Emphasis aus (zero-latency, kein zusaetzliches Delay)
+        return s4 * (1.0f + k);
     }
 };
 
@@ -1066,9 +1068,9 @@ struct PolySynthVoice
     X(osc3On) X(osc3Wave) X(osc3Oct) X(osc3Detune) X(osc3Level) \
     X(syncMode) X(syncPitch) X(syncEnv) \
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
-    X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(wtLevel) \
+    X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(lfoToFilter) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
-    X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) \
+    X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) X(arpHold) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
@@ -1161,6 +1163,7 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("wtLfoRate", "WT LFO Rate (Hz)",
             juce::NormalisableRange<float>(0.02f, 15.0f, 0.01f, 0.45f), 0.25f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("wtLfoAmt", "WT LFO Amount", -1.0f, 1.0f, 0.35f));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("lfoToFilter", "LFO -> Filter", false));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("wtLevel", "WT Osc Level", 0.0f, 1.0f, 0.85f));
 
         params.push_back(std::make_unique<juce::AudioParameterFloat>("analogDrift", "Analog Drift (ct)", 0.0f, 25.0f, 5.5f));
@@ -1177,6 +1180,8 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fDecay", "Filter Decay (s)",
             juce::NormalisableRange<float>(0.005f, 5.0f, 0.0001f, 0.4f), 0.35f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fSustain", "Filter Sustain", 0.0f, 1.0f, 0.30f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("fRelease", "Filter Release (s)",
+            juce::NormalisableRange<float>(0.003f, 6.0f, 0.0001f, 0.4f), 0.40f));
 
         // Loudness-Huellkurve (schnellere Standardwerte)
         params.push_back(std::make_unique<juce::AudioParameterFloat>("aAttack", "Amp Attack (s)",
@@ -1322,6 +1327,10 @@ public:
 
         const int maxAllowedPoly = juce::jlimit(1, PolySynthVoice::maxPolyVoices, static_cast<int>(pp.polyVoices->load()));
         const bool arpEnabled = pp.arpOn->load() > 0.5f;
+        const bool holdNow = pp.arpHold->load() > 0.5f;
+        if (arpEnabled && arpHoldWasOn && !holdNow)
+            heldNotes.clear();   // Latch aus -> gelatchte Noten loslassen, Arp stoppt
+        arpHoldWasOn = holdNow;
 
         // 1. MIDI
         for (const auto metadata : midiMessages)
@@ -1427,9 +1436,10 @@ public:
         const float lfoModVal = wtLfo.processBlock(numSamples, pp.wtLfoRate->load(),
                                                    static_cast<int>(pp.wtLfoWave->load()))
                               * pp.wtLfoAmt->load() * 0.5f;
+        const float lfoFilt = (pp.lfoToFilter->load() > 0.5f) ? lfoModVal * 2.0f : 0.0f;
 
         const float aA = pp.aAttack->load(), aD = pp.aDecay->load(), aS = pp.aSustain->load(), aR = pp.aRelease->load();
-        const float fA = pp.fAttack->load(), fD = pp.fDecay->load(), fS = pp.fSustain->load();
+        const float fA = pp.fAttack->load(), fD = pp.fDecay->load(), fS = pp.fSustain->load(), fR = pp.fRelease->load();
 
         const int numUnison = juce::jlimit(1, UnisonSubVoice::maxUnison, static_cast<int>(pp.unisonVoices->load()));
         const double maxUnisonDetune = static_cast<double>(pp.unisonDetune->load());
@@ -1536,7 +1546,7 @@ public:
                 if (!pv.active) continue;
 
                 pv.ampEnv.setParameters(std::max(aA, 0.0012f), aD, aS, aR);
-                pv.filterEnv.setParameters(fA, fD, fS, aR);
+                pv.filterEnv.setParameters(fA, fD, fS, fR);
 
                 for (int u = 0; u < numUnison; ++u)
                     for (int o = 0; o < 3; ++o)
@@ -1612,9 +1622,8 @@ public:
                         const float envA = pv.ampEnv.getNextSample() * pv.velocity;
                         const float envF = pv.filterEnv.getNextSample();
 
-                        // Cutoff folgt der Huellkurve alle 8 Samples (ohne Glaettung -> sofortiger Zugriff)
-                        if ((s & 7) == 0)
-                            g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct), static_cast<float>(osRate));
+                        // Cutoff folgt Huellkurve + LFO in jedem Sample (maximal knackig, zero-latency)
+                        g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct + lfoFilt), static_cast<float>(osRate));
 
                         const float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
                         const float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
@@ -1872,6 +1881,7 @@ private:
     int arpStep = 0;
     int arpDirection = 1;
     bool arpNoteActive = false;
+    bool arpHoldWasOn = false;
     int lastArpNote = 60;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModelD3AudioProcessor)
@@ -2025,9 +2035,9 @@ public:
             { "OSC 1", 0, { "osc1On", "osc1Wave", "osc1Oct", "osc1Detune", "osc1Level" } },
             { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
             { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
-            { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
+            { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "lfoToFilter", "wtLevel" } },
             { "FILTER", 0, { "cutoff", "resonance", "contour" } },
-            { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
+            { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain", "fRelease" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide" } },
             { "MIXER", 1, { "drive", "masterGain" } },
