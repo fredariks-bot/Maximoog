@@ -864,6 +864,23 @@ struct UnisonSubVoice
     WavetableOscillator wtOsc;
     AnalogDriftGenerator wtDriftGen;
 
+    uint32_t noiseRng = 0x9E3779B9u;
+    float pinkB0 = 0.0f, pinkB1 = 0.0f, pinkB2 = 0.0f;
+
+    float nextNoise(bool pink)
+    {
+        noiseRng ^= noiseRng << 13;
+        noiseRng ^= noiseRng >> 17;
+        noiseRng ^= noiseRng << 5;
+        const float white = static_cast<float>(static_cast<int32_t>(noiseRng)) * (1.0f / 2147483648.0f);
+        if (!pink)
+            return white;
+        pinkB0 = 0.99765f * pinkB0 + white * 0.0990460f;
+        pinkB1 = 0.96300f * pinkB1 + white * 0.2965164f;
+        pinkB2 = 0.57000f * pinkB2 + white * 1.0526913f;
+        return (pinkB0 + pinkB1 + pinkB2 + white * 0.1848f) * 0.05f;
+    }
+
     void prepare(double controlRate, int polyVoiceIdx, int unisonIdx)
     {
         const uint32_t baseSeed = static_cast<uint32_t>(104729 + polyVoiceIdx * 15401 + unisonIdx * 3571);
@@ -877,6 +894,10 @@ struct UnisonSubVoice
 
         wtOsc.reset(std::fmod(initPhaseOffset + 0.13, 1.0));
         wtDriftGen.prepare(controlRate, baseSeed + 4999u);
+
+        noiseRng = baseSeed ^ 0xA5A5A5A5u ^ (static_cast<uint32_t>(unisonIdx) * 2654435761u);
+        if (noiseRng == 0u) noiseRng = 0x9E3779B9u;
+        pinkB0 = pinkB1 = pinkB2 = 0.0f;
     }
 };
 
@@ -1168,9 +1189,6 @@ public:
         revDampSm = pp.revDamp->load();
         revMixSm  = pp.revMix->load();
 
-        noiseRng = 0x2F6E2B1Du;
-        pinkB0 = pinkB1 = pinkB2 = 0.0f;
-
         heldNotes.clear();
         arpCounter = 0.0;
         arpStep = 0;
@@ -1346,6 +1364,10 @@ public:
         const int oscOct[3]  = { static_cast<int>(pp.osc1Oct->load()),  static_cast<int>(pp.osc2Oct->load()),  static_cast<int>(pp.osc3Oct->load()) };
         const float oscDetune[3] = { pp.osc1Detune->load(), pp.osc2Detune->load(), pp.osc3Detune->load() };
 
+        const float noiseLevel = pp.noiseLevel->load();
+        const bool noiseActive = pp.noiseOn->load() > 0.5f && noiseLevel > 0.0005f;
+        const bool noisePink = static_cast<int>(pp.noiseType->load()) == 1;
+
         const float wtLevel = pp.wtLevel->load();
         const bool wtOn = pp.wtOn->load() > 0.5f && wtLevel > 0.0005f;
         const int wtOct = static_cast<int>(pp.wtOct->load());
@@ -1448,6 +1470,9 @@ public:
                             if (wtActive)
                                 x += sub.wtOsc.processSample(wtRef) * wtLevel;
 
+                            if (noiseActive)
+                                x += sub.nextNoise(noisePink) * noiseLevel;
+
                             sumL += x * voicePanL[static_cast<size_t>(u)];
                             sumR += x * voicePanR[static_cast<size_t>(u)];
                         }
@@ -1479,33 +1504,6 @@ public:
 
         auto* leftPtr  = buffer.getWritePointer(0);
         auto* rightPtr = buffer.getWritePointer(1);
-
-        // Noise Generator (xorshift-White, optional 3-pol-Pink, sehr CPU-guenstig)
-        if (pp.noiseOn->load() > 0.5f)
-        {
-            const float nLevel = pp.noiseLevel->load();
-            const bool pink = static_cast<int>(pp.noiseType->load()) == 1;
-
-            for (int i = 0; i < numSamples; ++i)
-            {
-                noiseRng ^= noiseRng << 13;
-                noiseRng ^= noiseRng >> 17;
-                noiseRng ^= noiseRng << 5;
-                const float white = static_cast<float>(static_cast<int32_t>(noiseRng)) * (1.0f / 2147483648.0f);
-
-                float n = white;
-                if (pink)
-                {
-                    pinkB0 = 0.99765f * pinkB0 + white * 0.0990460f;
-                    pinkB1 = 0.96300f * pinkB1 + white * 0.2965164f;
-                    pinkB2 = 0.57000f * pinkB2 + white * 1.0526913f;
-                    n = (pinkB0 + pinkB1 + pinkB2 + white * 0.1848f) * 0.05f;
-                }
-
-                leftPtr[i]  += n * nLevel * 0.5f;
-                rightPtr[i] += n * nLevel * 0.5f;
-            }
-        }
 
         // 5. Stereo Chorus (LFO-modulierte Delaylines, gegenphasig L/R)
         const float chorusMix = pp.chorusMix->load();
@@ -1736,8 +1734,6 @@ private:
     juce::Reverb reverb;
     float revSizeSm = 0.78f, revDampSm = 0.35f, revMixSm = 0.38f;
     float revSmoothK = 0.0f;
-    uint32_t noiseRng = 0x2F6E2B1Du;
-    float pinkB0 = 0.0f, pinkB1 = 0.0f, pinkB2 = 0.0f;
 
     std::vector<int> heldNotes, arpSorted, arpPattern;
     double arpCounter = 0.0;
