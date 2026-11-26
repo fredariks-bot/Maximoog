@@ -2,18 +2,15 @@
 // Model D-3 Synth  -  v2.2.0  (CPU-optimiert, schnellere Huellkurven & Filter)
 // Oversampling (2x, Max-Quality Polyphase-IIR) bleibt unveraendert aktiv.
 // ==============================================================================
-#include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
 #include <cstdint>
-#include <random>
 #include <vector>
 #include <algorithm>
 #include <memory>
 #include <array>
 #include <atomic>
-#include <functional>
 
 namespace
 {
@@ -23,6 +20,15 @@ namespace
         x = juce::jlimit(-3.0f, 3.0f, x);
         const float x2 = x * x;
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    }
+
+    // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer Sinus-Layer und Sinus-Welle
+    inline float fastSinTwoPi(float p) noexcept
+    {
+        float x = 2.0f * p;
+        if (x > 1.0f) x -= 2.0f;
+        const float y = 4.0f * x * (1.0f - std::abs(x));
+        return 0.225f * (y * std::abs(y) - y) + y;
     }
 
     // Controlrate-Chunk (in Samples des Oversampling-Raums): Drift, Pitch, WT-Morph
@@ -121,59 +127,137 @@ private:
 };
 
 // ==============================================================================
-// PolyBLEP-Oszillator (Phaseninkrement wird von aussen pro Chunk gesetzt)
+// Analog-Oszillator: PolyBLEP/BLAMP mit weicher Reset-Flanke, gekruemmter Saege,
+// Sinus-Layer und bandbegrenztem Hard-Sync (BLEP-Korrektur am Sync-Reset)
 // ==============================================================================
 class PolyBLEPOscillator
 {
 public:
-    enum Waveform { Saw = 0, Triangle, Square, PulseWide };
+    enum Waveform { Saw = 0, Triangle, Square, PulseWide, Sine };
 
-    void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); lastOutput = 0.0f; }
+    void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); pendingCorr = 0.0f; didWrap = false; }
     void setPhaseInc(double inc) noexcept { phaseInc = juce::jlimit(1.0e-4, 0.48, inc); }
     void setWaveform(int wf) noexcept { waveform = wf; }
+    void setSineLevel(float l) noexcept { sineLevel = l; }
+
+    // Master-Info: Phase ist in diesem Sample ueberlaufen (d = Bruchteil eines Samples seit dem Reset)
+    bool wrapped() const noexcept { return didWrap; }
+    double wrapFrac() const noexcept { return wrapD; }
 
     inline float processSample() noexcept
     {
-        const double t = phase;
-        const double dt = phaseInc;
-        float out;
+        const float out = render();
+        phase += phaseInc;
+        didWrap = false;
+        if (phase >= 1.0) { phase -= 1.0; didWrap = true; wrapD = phase / phaseInc; }
+        return out;
+    }
 
-        if (waveform == Saw)
+    // Slave: wird beim Phasenueberlauf des Masters auf Phase 0 zurueckgesetzt
+    inline float processSampleSync(bool masterWrapped, double d) noexcept
+    {
+        float out = render();
+        didWrap = false;
+
+        if (masterWrapped)
         {
-            out = static_cast<float>(2.0 * t - 1.0 - polyBLEP(t, dt));
-        }
-        else if (waveform == Square || waveform == PulseWide)
-        {
-            const double pw = (waveform == Square) ? 0.5 : 0.25;
-            double t2 = t + (1.0 - pw);
-            if (t2 >= 1.0) t2 -= 1.0;
-            out = ((t < pw) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dt) - polyBLEP(t2, dt));
+            double phiR = phase + (1.0 - d) * phaseInc;          // Slave-Phase im Reset-Moment
+            phiR -= std::floor(phiR);
+            const float D = shape(0.0) - shape(phiR);            // Sprunghoehe
+            out += 0.5f * D * static_cast<float>(d * d);         // BLEP vor dem Reset
+            pendingCorr = -0.5f * D * static_cast<float>((1.0 - d) * (1.0 - d));   // BLEP nach dem Reset
+            phase = d * phaseInc;
         }
         else
         {
-            double t2 = t + 0.5;
-            if (t2 >= 1.0) t2 -= 1.0;
-            const float sq = ((t < 0.5) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dt) - polyBLEP(t2, dt));
-            lastOutput = static_cast<float>(4.0 * dt * sq + (1.0 - 4.0 * dt) * lastOutput);
-            out = juce::jlimit(-1.0f, 1.0f, lastOutput * 1.15f);
+            phase += phaseInc;
+            if (phase >= 1.0) phase -= 1.0;
         }
-
-        phase += phaseInc;
-        if (phase >= 1.0) phase -= 1.0;
         return out;
     }
 
 private:
+    inline float render() noexcept
+    {
+        const double t = phase;
+        const double dt = phaseInc;
+        const double dw = std::min(dt * edgeSoftness, 0.49);   // weichere Flanke = runder, "analoger"
+        float out;
+
+        switch (waveform)
+        {
+            case Saw:
+            {
+                const float x = static_cast<float>(2.0 * t - 1.0 - polyBLEP(t, dw));
+                out = x + sawCurve * (x * x - 0.33333334f);    // leichte Kruemmung, DC-frei
+                break;
+            }
+            case Square:
+            case PulseWide:
+            {
+                const double pw = (waveform == Square) ? 0.5 : 0.25;
+                double t2 = t + (1.0 - pw);
+                if (t2 >= 1.0) t2 -= 1.0;
+                out = ((t < pw) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dw) - polyBLEP(t2, dw));
+                break;
+            }
+            case Triangle:
+            {
+                double t2 = t + 0.5;
+                if (t2 >= 1.0) t2 -= 1.0;
+                const double tri = (t < 0.5) ? (4.0 * t - 1.0) : (3.0 - 4.0 * t);
+                out = static_cast<float>(tri + 8.0 * dt * (polyBLAMP(t, dt) - polyBLAMP(t2, dt)));
+                break;
+            }
+            default:
+                out = fastSinTwoPi(static_cast<float>(t));
+                break;
+        }
+
+        if (sineLevel > 0.0005f)
+            out += sineLevel * fastSinTwoPi(static_cast<float>(t));
+
+        out += pendingCorr;
+        pendingCorr = 0.0f;
+        return out;
+    }
+
+    // Naive Kurvenform (ohne BLEP) fuer die Sync-Sprunghoehe
+    inline float shape(double p) const noexcept
+    {
+        float v;
+        switch (waveform)
+        {
+            case Saw:       { const float x = static_cast<float>(2.0 * p - 1.0); v = x + sawCurve * (x * x - 0.33333334f); break; }
+            case Triangle:  v = static_cast<float>((p < 0.5) ? (4.0 * p - 1.0) : (3.0 - 4.0 * p)); break;
+            case Square:    v = (p < 0.5)  ? 1.0f : -1.0f; break;
+            case PulseWide: v = (p < 0.25) ? 1.0f : -1.0f; break;
+            default:        v = fastSinTwoPi(static_cast<float>(p)); break;
+        }
+        return v + sineLevel * fastSinTwoPi(static_cast<float>(p));
+    }
+
     static inline double polyBLEP(double t, double dt) noexcept
     {
-        if (t < dt)            { t /= dt;            return t + t - t * t - 1.0; }
-        if (t > 1.0 - dt)      { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
+        if (t < dt)       { t /= dt;            return t + t - t * t - 1.0; }
+        if (t > 1.0 - dt) { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
         return 0.0;
     }
 
-    double phase = 0.0, phaseInc = 0.01;
-    float lastOutput = 0.0f;
+    static inline double polyBLAMP(double t, double dt) noexcept
+    {
+        if (t < dt)       { const double x = t / dt - 1.0;           return -(1.0 / 3.0) * x * x * x; }
+        if (t > 1.0 - dt) { const double x = (t - 1.0) / dt + 1.0;   return  (1.0 / 3.0) * x * x * x; }
+        return 0.0;
+    }
+
+    static constexpr double edgeSoftness = 1.35;
+    static constexpr float  sawCurve = 0.07f;
+
+    double phase = 0.0, phaseInc = 0.01, wrapD = 0.0;
+    float sineLevel = 0.0f, pendingCorr = 0.0f;
     int waveform = Saw;
+    bool didWrap = false;
 };
 
 // ==============================================================================
@@ -864,23 +948,6 @@ struct UnisonSubVoice
     WavetableOscillator wtOsc;
     AnalogDriftGenerator wtDriftGen;
 
-    uint32_t noiseRng = 0x9E3779B9u;
-    float pinkB0 = 0.0f, pinkB1 = 0.0f, pinkB2 = 0.0f;
-
-    float nextNoise(bool pink)
-    {
-        noiseRng ^= noiseRng << 13;
-        noiseRng ^= noiseRng >> 17;
-        noiseRng ^= noiseRng << 5;
-        const float white = static_cast<float>(static_cast<int32_t>(noiseRng)) * (1.0f / 2147483648.0f);
-        if (!pink)
-            return white;
-        pinkB0 = 0.99765f * pinkB0 + white * 0.0990460f;
-        pinkB1 = 0.96300f * pinkB1 + white * 0.2965164f;
-        pinkB2 = 0.57000f * pinkB2 + white * 1.0526913f;
-        return (pinkB0 + pinkB1 + pinkB2 + white * 0.1848f) * 0.05f;
-    }
-
     void prepare(double controlRate, int polyVoiceIdx, int unisonIdx)
     {
         const uint32_t baseSeed = static_cast<uint32_t>(104729 + polyVoiceIdx * 15401 + unisonIdx * 3571);
@@ -894,10 +961,6 @@ struct UnisonSubVoice
 
         wtOsc.reset(std::fmod(initPhaseOffset + 0.13, 1.0));
         wtDriftGen.prepare(controlRate, baseSeed + 4999u);
-
-        noiseRng = baseSeed ^ 0xA5A5A5A5u ^ (static_cast<uint32_t>(unisonIdx) * 2654435761u);
-        if (noiseRng == 0u) noiseRng = 0x9E3779B9u;
-        pinkB0 = pinkB1 = pinkB2 = 0.0f;
     }
 };
 
@@ -911,6 +974,13 @@ struct PolySynthVoice
     double currentFreq = 110.0;
     double targetFreq = 110.0;
     uint64_t noteOnAge = 0;
+    uint32_t phaseRng = 0x9E3779B9u;
+
+    double rand01() noexcept
+    {
+        phaseRng ^= phaseRng << 13; phaseRng ^= phaseRng >> 17; phaseRng ^= phaseRng << 5;
+        return static_cast<double>(phaseRng) * (1.0 / 4294967296.0);
+    }
 
     std::array<UnisonSubVoice, UnisonSubVoice::maxUnison> subVoices;
     AnalogEnvelope ampEnv;
@@ -922,6 +992,7 @@ struct PolySynthVoice
         for (int u = 0; u < UnisonSubVoice::maxUnison; ++u)
             subVoices[static_cast<size_t>(u)].prepare(controlRate, polyIndex, u);
 
+        phaseRng = (0x9E3779B9u ^ (static_cast<uint32_t>(polyIndex + 1) * 2654435761u)) | 1u;
         ampEnv.setSampleRate(osRate);
         filterEnv.setSampleRate(osRate);
         ampEnv.reset();
@@ -941,6 +1012,11 @@ struct PolySynthVoice
         {
             ladderL.reset();
             ladderR.reset();
+            for (auto& sub : subVoices)
+            {
+                for (int o = 0; o < 3; ++o) sub.oscs[o].reset(rand01());
+                sub.wtOsc.reset(rand01());
+            }
         }
 
         if (!active && !legatoGlide)
@@ -968,15 +1044,15 @@ struct PolySynthVoice
     X(osc1On) X(osc1Wave) X(osc1Oct) X(osc1Detune) X(osc1Level) \
     X(osc2On) X(osc2Wave) X(osc2Oct) X(osc2Detune) X(osc2Level) \
     X(osc3On) X(osc3Wave) X(osc3Oct) X(osc3Detune) X(osc3Level) \
+    X(osc1Sine) X(osc2Sine) X(osc3Sine) X(syncMode) X(syncPitch) X(syncEnv) \
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
     X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
     X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) \
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) \
-    X(chorusRate) X(chorusDepth) X(chorusMix) \
-    X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain) \
-    X(noiseOn) X(noiseType) X(noiseLevel)
+    X(compOn) X(compThresh) X(compRatio) X(compAttack) X(compRelease) X(compMakeup) \
+    X(delayTime) X(delayFeedback) X(delayMix) X(revSize) X(revDamp) X(revMix) X(masterGain)
 
 struct ParamPtrs
 {
@@ -1019,7 +1095,7 @@ public:
     {
         std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-        juce::StringArray waveChoices { "Sawtooth", "Triangle", "Square", "Pulse 25%" };
+        juce::StringArray waveChoices { "Sawtooth", "Triangle", "Square", "Pulse 25%", "Sine" };
         juce::StringArray octaveChoices { "32'", "16'", "8'", "4'", "2'" };
         juce::StringArray lfoWaveChoices { "Sine", "Triangle", "Saw Up", "Saw Down", "Smooth S&H" };
         juce::StringArray arpRateChoices { "1/4", "1/8", "1/8T", "1/16", "1/32" };
@@ -1037,7 +1113,7 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc1Level", "Osc 1 Level", 0.0f, 1.0f, 0.65f));
 
         params.push_back(std::make_unique<juce::AudioParameterBool>("osc2On", "Osc 2 On", true));
-        params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Wave", "Osc 2 Wave", waveChoices, 1));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Wave", "Osc 2 Wave", waveChoices, 0));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Oct", "Osc 2 Octave", octaveChoices, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Detune", "Osc 2 Detune (ct)", -50.0f, 50.0f, 4.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Level", "Osc 2 Level", 0.0f, 1.0f, 0.60f));
@@ -1047,6 +1123,17 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc3Oct", "Osc 3 Octave", octaveChoices, 1));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Detune", "Osc 3 Detune (ct)", -50.0f, 50.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Level", "Osc 3 Level", 0.0f, 1.0f, 0.50f));
+
+        // Sinus-Layer pro Oszillator (zusaetzlich zur gewaehlten Wellenform)
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("osc1Sine", "Osc 1 Sine Layer", 0.0f, 1.0f, 0.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Sine", "Osc 2 Sine Layer", 0.0f, 1.0f, 0.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Sine", "Osc 3 Sine Layer", 0.0f, 1.0f, 0.0f));
+
+        // Hard Sync: Osc 1 = Master, Osc 2/3 = Slave (Sweep ueber Sync Pitch + Filter-Huellkurve)
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("syncMode", "Sync Mode",
+            juce::StringArray { "Off", "Osc 2 > Osc 1", "Osc 3 > Osc 1", "Osc 2+3 > Osc 1" }, 0));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("syncPitch", "Sync Pitch (st)", 0.0f, 24.0f, 7.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("syncEnv", "Sync Env Amount (st)", 0.0f, 24.0f, 0.0f));
 
         params.push_back(std::make_unique<juce::AudioParameterBool>("wtOn", "WT Osc On", true));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("wtPreset", "WT Preset", WavetableBank::getPresetNames(), 0));
@@ -1090,10 +1177,12 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterInt>("arpOctaves", "Arp Octaves", 1, 3, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("arpGate", "Arp Gate", 0.1f, 0.95f, 0.75f));
 
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusRate", "Chorus Rate (Hz)",
-            juce::NormalisableRange<float>(0.05f, 8.0f, 0.01f, 0.5f), 0.8f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusDepth", "Chorus Depth", 0.0f, 1.0f, 0.5f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusMix", "Chorus Mix", 0.0f, 1.0f, 0.35f));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("compOn", "Compressor On", true));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("compThresh", "Comp Threshold (dB)", -40.0f, 0.0f, -15.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("compRatio", "Comp Ratio", 1.0f, 12.0f, 3.2f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("compAttack", "Comp Attack (ms)", 0.5f, 100.0f, 15.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("compRelease", "Comp Release (ms)", 10.0f, 500.0f, 140.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("compMakeup", "Comp Makeup (dB)", 0.0f, 18.0f, 2.5f));
 
         params.push_back(std::make_unique<juce::AudioParameterFloat>("delayTime", "Delay Time (ms)", 20.0f, 1200.0f, 420.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("delayFeedback", "Delay Feedback", 0.0f, 0.85f, 0.42f));
@@ -1104,12 +1193,6 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("revMix", "Reverb Mix", 0.0f, 1.0f, 0.38f));
 
         params.push_back(std::make_unique<juce::AudioParameterFloat>("masterGain", "Master Volume", 0.0f, 1.5f, 0.85f));
-
-        // Noise Generator (White / Pink)
-        params.push_back(std::make_unique<juce::AudioParameterBool>("noiseOn", "Noise On", false));
-        params.push_back(std::make_unique<juce::AudioParameterChoice>("noiseType", "Noise Type",
-            juce::StringArray { "White", "Pink" }, 0));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("noiseLevel", "Noise Level", 0.0f, 1.0f, 0.3f));
 
         return { params.begin(), params.end() };
     }
@@ -1166,13 +1249,8 @@ public:
         juce::dsp::ProcessSpec stereoSpec { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2 };
         juce::dsp::ProcessSpec monoSpec   { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 1 };
 
-        chorusLineL.prepare(monoSpec);
-        chorusLineR.prepare(monoSpec);
-        chorusLineL.setMaximumDelayInSamples(static_cast<int>(sampleRate * 0.05));
-        chorusLineR.setMaximumDelayInSamples(static_cast<int>(sampleRate * 0.05));
-        chorusLineL.reset();
-        chorusLineR.reset();
-        chorusPhase = 0.0;
+        compressor.prepare(stereoSpec);
+        compressor.reset();
 
         delayLineL.prepare(monoSpec);
         delayLineR.prepare(monoSpec);
@@ -1183,11 +1261,6 @@ public:
 
         reverb.setSampleRate(sampleRate);
         reverb.reset();
-
-        revSmoothK = 1.0f - std::exp(-(static_cast<double>(samplesPerBlock) / sampleRate) / 0.012);
-        revSizeSm = pp.revSize->load();
-        revDampSm = pp.revDamp->load();
-        revMixSm  = pp.revMix->load();
 
         heldNotes.clear();
         arpCounter = 0.0;
@@ -1340,6 +1413,15 @@ public:
         }
         else
         {
+            float gSq = 0.0f;
+            for (int u = 0; u < numUnison; ++u)
+            {
+                const float np = (2.0f * static_cast<float>(u) / static_cast<float>(numUnison - 1)) - 1.0f;
+                const float gu = 1.0f - 0.30f * std::abs(np);
+                gSq += gu * gu;
+            }
+            const float gainNorm = std::sqrt(static_cast<float>(numUnison) / gSq);
+
             for (int u = 0; u < numUnison; ++u)
             {
                 const double normPos = (2.0 * u / static_cast<double>(numUnison - 1)) - 1.0;
@@ -1347,8 +1429,9 @@ public:
                 voiceDetuneCents[static_cast<size_t>(u)] = curved * maxUnisonDetune;
 
                 const float panAngle = static_cast<float>((normPos * unisonSpread + 1.0) * 0.25 * juce::MathConstants<double>::pi);
-                voicePanL[static_cast<size_t>(u)] = std::cos(panAngle);
-                voicePanR[static_cast<size_t>(u)] = std::sin(panAngle);
+                const float gu = (1.0f - 0.30f * std::abs(static_cast<float>(normPos))) * gainNorm;
+                voicePanL[static_cast<size_t>(u)] = std::cos(panAngle) * gu;
+                voicePanR[static_cast<size_t>(u)] = std::sin(panAngle) * gu;
             }
         }
 
@@ -1363,10 +1446,13 @@ public:
         const int oscWave[3] = { static_cast<int>(pp.osc1Wave->load()), static_cast<int>(pp.osc2Wave->load()), static_cast<int>(pp.osc3Wave->load()) };
         const int oscOct[3]  = { static_cast<int>(pp.osc1Oct->load()),  static_cast<int>(pp.osc2Oct->load()),  static_cast<int>(pp.osc3Oct->load()) };
         const float oscDetune[3] = { pp.osc1Detune->load(), pp.osc2Detune->load(), pp.osc3Detune->load() };
+        const float oscSine[3] = { pp.osc1Sine->load(), pp.osc2Sine->load(), pp.osc3Sine->load() };
 
-        const float noiseLevel = pp.noiseLevel->load();
-        const bool noiseActive = pp.noiseOn->load() > 0.5f && noiseLevel > 0.0005f;
-        const bool noisePink = static_cast<int>(pp.noiseType->load()) == 1;
+        const int syncModeIdx = static_cast<int>(pp.syncMode->load());
+        const bool slaveSync[3] = { false, syncModeIdx == 1 || syncModeIdx == 3, syncModeIdx == 2 || syncModeIdx == 3 };
+        const bool syncAny = syncModeIdx != 0;
+        const double syncPitchSt = static_cast<double>(pp.syncPitch->load());
+        const double syncEnvSt = static_cast<double>(pp.syncEnv->load());
 
         const float wtLevel = pp.wtLevel->load();
         const bool wtOn = pp.wtOn->load() > 0.5f && wtLevel > 0.0005f;
@@ -1385,6 +1471,7 @@ public:
 
         const float drive = pp.drive->load();
         const float driveNorm = 1.0f / fastTanh(drive);
+        const float mixBias = 0.12f, mixBiasOut = fastTanh(0.12f);
         const float baseCutoff = pp.cutoff->load();
         const float resK = pp.resonance->load() * 4.0f;
         const float contourOct = pp.contour->load() * 5.0f;
@@ -1412,12 +1499,15 @@ public:
             {
                 if (!pv.active) continue;
 
-                pv.ampEnv.setParameters(aA, aD, aS, aR);
+                pv.ampEnv.setParameters(std::max(aA, 0.0012f), aD, aS, aR);
                 pv.filterEnv.setParameters(fA, fD, fS, aR);
 
                 for (int u = 0; u < numUnison; ++u)
                     for (int o = 0; o < 3; ++o)
+                    {
                         pv.subVoices[static_cast<size_t>(u)].oscs[o].setWaveform(oscWave[o]);
+                        pv.subVoices[static_cast<size_t>(u)].oscs[o].setSineLevel(oscSine[o]);
+                    }
 
                 float g = 0.0f;
                 WtFrameRef wtRef;
@@ -1432,6 +1522,7 @@ public:
                     const float effPos = juce::jlimit(0.0f, 1.0f, wtPos + pv.filterEnv.getLevel() * wtEnv + lfoModVal);
                     latestWtPosForGui = effPos;
                     const bool wtActive = wtOn && wtRef.set(tablePtr, effPos);
+                    const double syncSemis = syncPitchSt + static_cast<double>(pv.filterEnv.getLevel()) * syncEnvSt;
 
                     for (int u = 0; u < numUnison; ++u)
                     {
@@ -1440,9 +1531,10 @@ public:
 
                         for (int o = 0; o < 3; ++o)
                         {
-                            if (!oscActive[o]) continue;
+                            if (!oscActive[o] && !(o == 0 && syncAny)) continue;
                             const double cents = static_cast<double>(oscDetune[o]) + uDet
-                                               + sub.driftGens[o].next(driftCents * oscDriftScale[o]);
+                                               + sub.driftGens[o].next(driftCents * oscDriftScale[o])
+                                               + (slaveSync[o] ? syncSemis * 100.0 : 0.0);
                             sub.oscs[o].setPhaseInc(pv.currentFreq * octMults[oscOct[o]] * std::exp2(cents / 1200.0) / osRate);
                         }
 
@@ -1463,15 +1555,19 @@ public:
                             auto& sub = pv.subVoices[static_cast<size_t>(u)];
                             float x = 0.0f;
 
-                            for (int o = 0; o < 3; ++o)
+                            if (oscActive[0] || syncAny)
+                            {
+                                const float m = sub.oscs[0].processSample();
+                                if (oscActive[0]) x += m * oscLevel[0];
+                            }
+
+                            for (int o = 1; o < 3; ++o)
                                 if (oscActive[o])
-                                    x += sub.oscs[o].processSample() * oscLevel[o];
+                                    x += (slaveSync[o] ? sub.oscs[o].processSampleSync(sub.oscs[0].wrapped(), sub.oscs[0].wrapFrac())
+                                                       : sub.oscs[o].processSample()) * oscLevel[o];
 
                             if (wtActive)
                                 x += sub.wtOsc.processSample(wtRef) * wtLevel;
-
-                            if (noiseActive)
-                                x += sub.nextNoise(noisePink) * noiseLevel;
 
                             sumL += x * voicePanL[static_cast<size_t>(u)];
                             sumR += x * voicePanR[static_cast<size_t>(u)];
@@ -1484,8 +1580,8 @@ public:
                         if ((s & 7) == 0)
                             g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct), static_cast<float>(osRate));
 
-                        const float inL = fastTanh(sumL * unisonGainComp * drive) * driveNorm;
-                        const float inR = fastTanh(sumR * unisonGainComp * drive) * driveNorm;
+                        const float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
+                        const float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
 
                         // Moog-Signalweg: Mixer -> VCF -> VCA
                         outL[s] += pv.ladderL.process(inL, g, resK) * envA * polyGainComp;
@@ -1505,37 +1601,15 @@ public:
         auto* leftPtr  = buffer.getWritePointer(0);
         auto* rightPtr = buffer.getWritePointer(1);
 
-        // 5. Stereo Chorus (LFO-modulierte Delaylines, gegenphasig L/R)
-        const float chorusMix = pp.chorusMix->load();
-        if (chorusMix > 0.001f)
+        // 5. Kompressor
+        if (pp.compOn->load() > 0.5f)
         {
-            const float chorusRate  = pp.chorusRate->load();
-            const float chorusDepth = pp.chorusDepth->load();
-            const float centerS = 18.0f * 0.001f * currentSampleRate;
-            const float modS    = 9.0f * 0.001f * currentSampleRate * chorusDepth;
-            const double phaseInc = static_cast<double>(chorusRate) / currentSampleRate;
-
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const double lfo = std::sin(juce::MathConstants<double>::twoPi * chorusPhase);
-                chorusPhase += phaseInc;
-                if (chorusPhase >= 1.0)
-                    chorusPhase -= 1.0;
-
-                const float inL = leftPtr[i];
-                const float inR = rightPtr[i];
-
-                const float dL = juce::jmax(1.0f, centerS + static_cast<float>(lfo) * modS);
-                const float dR = juce::jmax(1.0f, centerS - static_cast<float>(lfo) * modS);
-
-                const float wetL = chorusLineL.popSample(0, dL, true);
-                const float wetR = chorusLineR.popSample(0, dR, true);
-                chorusLineL.pushSample(0, inL);
-                chorusLineR.pushSample(0, inR);
-
-                leftPtr[i]  = inL * (1.0f - chorusMix * 0.5f) + wetL * chorusMix;
-                rightPtr[i] = inR * (1.0f - chorusMix * 0.5f) + wetR * chorusMix;
-            }
+            compressor.setThreshold(pp.compThresh->load());
+            compressor.setRatio(pp.compRatio->load());
+            compressor.setAttack(pp.compAttack->load());
+            compressor.setRelease(pp.compRelease->load());
+            compressor.process(juce::dsp::ProcessContextReplacing<float>(stereoBlock));
+            buffer.applyGain(juce::Decibels::decibelsToGain(pp.compMakeup->load()));
         }
 
         // 6. Stereo Cross-Feedback Delay
@@ -1561,30 +1635,27 @@ public:
             }
         }
 
-        // 7. Reverb (Parameter pro Block geglaettet -> kein Knistern beim Drehen)
-        revSizeSm += (pp.revSize->load() - revSizeSm) * revSmoothK;
-        revDampSm += (pp.revDamp->load() - revDampSm) * revSmoothK;
-        revMixSm  += (pp.revMix->load()  - revMixSm)  * revSmoothK;
-
-        if (revMixSm > 0.001f)
+        // 7. Reverb
+        const float revMix = pp.revMix->load();
+        if (revMix > 0.001f)
         {
             juce::Reverb::Parameters rp;
-            rp.roomSize = revSizeSm;
-            rp.damping  = revDampSm;
-            rp.wetLevel = revMixSm * 0.85f;
-            rp.dryLevel = 1.0f - (revMixSm * 0.35f);
+            rp.roomSize = pp.revSize->load();
+            rp.damping  = pp.revDamp->load();
+            rp.wetLevel = revMix;
+            rp.dryLevel = 1.0f - (revMix * 0.4f);
             rp.width    = 1.0f;
             reverb.setParameters(rp);
             reverb.processStereo(leftPtr, rightPtr, numSamples);
         }
 
-        // 8. Master + Safety-Limiter (Soft-Clip via fastTanh statt hartem Clipping -> kein Knistern)
+        // 8. Master + Safety-Limiter
         const float master = pp.masterGain->load();
         for (int ch = 0; ch < 2; ++ch)
         {
             auto* d = buffer.getWritePointer(ch);
             for (int i = 0; i < numSamples; ++i)
-                d[i] = fastTanh(d[i] * master);
+                d[i] = juce::jlimit(-1.0f, 1.0f, d[i] * master);
         }
     }
 
@@ -1726,14 +1797,10 @@ private:
     std::atomic<float> currentEffectiveWtPos { 0.45f };
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> chorusLineL;
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> chorusLineR;
-    double chorusPhase = 0.0;
+    juce::dsp::Compressor<float> compressor;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineL;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineR;
     juce::Reverb reverb;
-    float revSizeSm = 0.78f, revDampSm = 0.35f, revMixSm = 0.38f;
-    float revSmoothK = 0.0f;
 
     std::vector<int> heldNotes, arpSorted, arpPattern;
     double arpCounter = 0.0;
@@ -1844,38 +1911,11 @@ private:
 // ==============================================================================
 // Editor
 // ==============================================================================
-struct EditorControl
-{
-    std::unique_ptr<juce::Component> comp;
-    std::unique_ptr<juce::Label> label;
-    bool isKnob = false;
-    bool isBig = false;
-};
-
-struct EditorSectionDef
-{
-    juce::String title;
-    int column;
-    std::vector<juce::String> ids;
-};
-
-struct EditorSection
-{
-    juce::String title;
-    int column = 0;
-    juce::Rectangle<int> area;
-    std::unique_ptr<juce::Label> header;
-    std::vector<EditorControl> controls;
-};
-
-class EditorContent : public juce::Component, private juce::AudioProcessorValueTreeState::Listener
+class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
-    static constexpr int kBaseWidth = 960;
-    static constexpr int kTopPanelH = 140;
-
-    explicit EditorContent(ModelD3AudioProcessor& p)
-        : audioProcessor(p), wtDisplay(p)
+    explicit ModelD3AudioProcessorEditor(ModelD3AudioProcessor& p)
+        : AudioProcessorEditor(&p), audioProcessor(p), wtDisplay(p), genericEditor(p)
     {
         presetBox.addItemList(WavetableBank::getPresetNames(), 1);
         presetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
@@ -1888,273 +1928,46 @@ public:
         addAndMakeVisible(loadBtn);
 
         addAndMakeVisible(wtDisplay);
+        addAndMakeVisible(genericEditor);
 
-        static const std::vector<EditorSectionDef> sectionDefs = {
-            { "OSC 1", 0, { "osc1On", "osc1Wave", "osc1Oct", "osc1Detune", "osc1Level" } },
-            { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
-            { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
-            { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "wtLevel" } },
-            { "FILTER", 0, { "cutoff", "resonance", "contour" } },
-            { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
-            { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
-            { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
-            { "MIXER", 1, { "drive", "masterGain" } },
-            { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
-            { "CHORUS", 1, { "chorusRate", "chorusDepth", "chorusMix" } },
-            { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
-            { "REVERB", 1, { "revSize", "revDamp", "revMix" } },
-            { "NOISE", 1, { "noiseOn", "noiseType", "noiseLevel" } }
-        };
-
-        juce::StringArray placed;
-        for (const auto& def : sectionDefs)
-        {
-            EditorSection s;
-            s.title = def.title;
-            s.column = def.column;
-            s.header = std::make_unique<juce::Label>(juce::String(), def.title);
-            s.header->setFont(juce::Font(juce::FontOptions(11.0f)));
-            s.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
-            addAndMakeVisible(*s.header);
-
-            for (const auto& id : def.ids)
-            {
-                if (auto* param = audioProcessor.apvts.getParameter(id))
-                {
-                    addControlToSection(s, param);
-                    placed.add(id);
-                }
-            }
-            sections.push_back(std::move(s));
-        }
-
-        EditorSection other;
-        other.column = 1;
-        for (auto* param : audioProcessor.getParameters())
-        {
-            auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
-            if (withID == nullptr || withID->paramID == "wtPreset" || placed.contains(withID->paramID))
-                continue;
-
-            if (other.header == nullptr)
-            {
-                other.title = "OTHER";
-                other.header = std::make_unique<juce::Label>(juce::String(), "OTHER");
-                other.header->setFont(juce::Font(juce::FontOptions(11.0f)));
-                other.header->setColour(juce::Label::textColourId, juce::Colour(0xff6fb3e8));
-                addAndMakeVisible(*other.header);
-            }
-            addControlToSection(other, param);
-        }
-        if (other.header != nullptr)
-            sections.push_back(std::move(other));
-
-        setSize(kBaseWidth, layoutSections(kBaseWidth, kTopPanelH + 8) + 8);
-
-        audioProcessor.apvts.addParameterListener("wtOn", this);
-        updateWavetablePanel(audioProcessor.apvts.getRawParameterValue("wtOn")->load() > 0.5f);
+        setResizable(true, true);
+        setSize(620, 840);
     }
-
-    ~EditorContent() override
-    {
-        audioProcessor.apvts.removeParameterListener("wtOn", this);
-    }
-
-    std::function<void()> onRelayout;
 
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff181b20));
         g.setColour(juce::Colour(0xff232730));
-        g.fillRect(0, 0, getWidth(), topPanelH);
-
-        for (const auto& s : sections)
-        {
-            g.setColour(juce::Colour(0xff1f242e));
-            g.fillRoundedRectangle(s.area.toFloat(), 6.0f);
-            g.setColour(juce::Colour(0xff2c3242));
-            g.drawRoundedRectangle(s.area.toFloat(), 6.0f, 1.0f);
-        }
+        g.fillRect(0, 0, getWidth(), 168);
     }
 
     void resized() override
     {
         auto area = getLocalBounds();
+        auto topPanel = area.removeFromTop(168).reduced(10, 8);
 
-        if (topPanelH > 0)
-        {
-            auto topPanel = area.removeFromTop(topPanelH).reduced(10, 8);
+        auto controlRow = topPanel.removeFromTop(30);
+        presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - 125));
+        controlRow.removeFromLeft(8);
+        loadBtn.setBounds(controlRow);
 
-            auto controlRow = topPanel.removeFromTop(30);
-            presetBox.setBounds(controlRow.removeFromLeft(controlRow.getWidth() - 125));
-            controlRow.removeFromLeft(8);
-            loadBtn.setBounds(controlRow);
+        topPanel.removeFromTop(8);
+        wtDisplay.setBounds(topPanel);
 
-            topPanel.removeFromTop(8);
-            wtDisplay.setBounds(topPanel);
-        }
-
-        layoutSections(getWidth(), topPanelH + 8);
+        genericEditor.setBounds(area);
     }
 
 private:
-    void parameterChanged(const juce::String& parameterID, float newValue) override
-    {
-        if (parameterID != "wtOn")
-            return;
-
-        juce::Component::SafePointer<EditorContent> safeThis(this);
-        const bool show = newValue > 0.5f;
-        juce::MessageManager::callAsync([safeThis, show]()
-        {
-            if (safeThis != nullptr)
-                safeThis->updateWavetablePanel(show);
-        });
-    }
-
-    void updateWavetablePanel(bool show)
-    {
-        topPanelH = show ? kTopPanelH : 0;
-        wtDisplay.setVisible(show);
-        presetBox.setVisible(show);
-        loadBtn.setVisible(show);
-        setSize(kBaseWidth, layoutSections(kBaseWidth, topPanelH + 8) + 8);
-        if (onRelayout)
-            onRelayout();
-    }
-
-    void addControlToSection(EditorSection& s, juce::AudioProcessorParameter* param)
-    {
-        auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
-
-        EditorControl c;
-        c.label = std::make_unique<juce::Label>(juce::String(), param->getName(64));
-        c.label->setJustificationType(juce::Justification::centred);
-        c.label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        c.label->setFont(juce::Font(juce::FontOptions(10.0f)));
-        addAndMakeVisible(*c.label);
-
-        const auto id = withID != nullptr ? withID->paramID : juce::String();
-
-        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(param))
-        {
-            auto combo = std::make_unique<juce::ComboBox>();
-            combo->addItemList(choice->choices, 1);
-            combo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff232730));
-            combo->setColour(juce::ComboBox::textColourId, juce::Colours::lightgrey);
-            combo->setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3a4150));
-            comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-                audioProcessor.apvts, id, *combo));
-            c.comp = std::move(combo);
-            c.isKnob = false;
-        }
-        else if (dynamic_cast<juce::AudioParameterBool*>(param) != nullptr)
-        {
-            auto btn = std::make_unique<juce::TextButton>();
-            btn->setClickingTogglesState(true);
-            btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff232730));
-            btn->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2c5e8a));
-            btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-            buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-                audioProcessor.apvts, id, *btn));
-            c.comp = std::move(btn);
-            c.isKnob = false;
-        }
-        else
-        {
-            auto knob = std::make_unique<juce::Slider>();
-            knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-            knob->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff2c5e8a));
-            knob->setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff3a4150));
-            knob->setColour(juce::Slider::thumbColourId, juce::Colours::white);
-            sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-                audioProcessor.apvts, id, *knob));
-            c.comp = std::move(knob);
-            c.isKnob = true;
-            c.isBig = (id == "cutoff");
-        }
-
-        addAndMakeVisible(*c.comp);
-        s.controls.push_back(std::move(c));
-    }
-
-    int layoutSections(int width, int top)
-    {
-        const int margin = 12;
-        const int gap = 12;
-        const int pad4 = 4;
-        const int pad2 = 2;
-        const int colW = juce::jmax(240, (width - 2 * margin - gap) / 2);
-        const int ctrlH = 60;
-        const int bigCtrlH = 80;
-        const int labelH = 14;
-        const int headerH = 20;
-        const int sectionGap = 8;
-        const int btnH = 26;
-
-        int colY[2] = { top, top };
-        const int colX[2] = { margin, margin + colW + gap };
-
-        for (auto& s : sections)
-        {
-            const int n = static_cast<int>(s.controls.size());
-            if (n == 0)
-                continue;
-
-            const int col = juce::jlimit(0, 1, s.column);
-            const int colsPerRow = juce::jlimit(3, 5, n);
-
-            int maxCtrlH = ctrlH;
-            for (const auto& ctl : s.controls)
-                if (ctl.isBig)
-                    maxCtrlH = bigCtrlH;
-
-            const int rowH = maxCtrlH + labelH + 6;
-            const int rows = (n + colsPerRow - 1) / colsPerRow;
-            const int h = headerH + rows * rowH + 6;
-
-            const int x = colX[col];
-            int y = colY[col];
-
-            s.area = juce::Rectangle<int>(x - 5, y - 4, colW + 10, h + 4);
-            s.header->setBounds(x, y, colW, headerH);
-            y += headerH;
-
-            const int cellW = juce::jmax(1, colW / colsPerRow);
-            for (int i = 0; i < n; ++i)
-            {
-                const int c = i % colsPerRow;
-                const int r = i / colsPerRow;
-                const int cx = x + c * cellW;
-                const int cy = y + r * rowH;
-
-                auto& ctl = s.controls[static_cast<size_t>(i)];
-                const int ch = ctl.isBig ? bigCtrlH : ctrlH;
-                if (ctl.isKnob)
-                    ctl.comp->setBounds(cx + pad4, cy + (maxCtrlH - ch) / 2, cellW - 2 * pad4, ch);
-                else
-                    ctl.comp->setBounds(cx + pad4, cy + (maxCtrlH - btnH) / 2, cellW - 2 * pad4, btnH);
-                ctl.label->setBounds(cx + pad4, cy + maxCtrlH + pad2, cellW - 2 * pad4, labelH);
-            }
-
-            colY[col] = y + rows * rowH + sectionGap;
-        }
-
-        return juce::jmax(colY[0], colY[1]);
-    }
-
     void openWavetableChooser()
     {
         fileChooser = std::make_unique<juce::FileChooser>(
             "Wavetable WAV-Datei auswaehlen (Serum/Vital 2048-Frame oder Single-Cycle)",
-            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-            "*.wav");
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.wav");
 
-        auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+        const auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
         fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc)
         {
-            auto file = fc.getResult();
+            const auto file = fc.getResult();
             if (file.existsAsFile())
                 audioProcessor.loadWavetableFile(file);
         });
@@ -2162,62 +1975,11 @@ private:
 
     ModelD3AudioProcessor& audioProcessor;
     Wavetable2DDisplay wtDisplay;
+    juce::GenericAudioProcessorEditor genericEditor;
     juce::ComboBox presetBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> presetAttachment;
     juce::TextButton loadBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
-    std::vector<EditorSection> sections;
-    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
-    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
-    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
-    int topPanelH = kTopPanelH;
-};
-
-class ModelD3AudioProcessorEditor : public juce::AudioProcessorEditor
-{
-public:
-    explicit ModelD3AudioProcessorEditor(ModelD3AudioProcessor& p)
-        : AudioProcessorEditor(&p), content(p)
-    {
-        addAndMakeVisible(content);
-        content.onRelayout = [this]()
-        {
-            const float sc = getWidth() / (float) EditorContent::kBaseWidth;
-            const int newH = juce::roundToInt(content.getHeight() * sc);
-            getConstrainer()->setFixedAspectRatio((double) content.getHeight() / (double) EditorContent::kBaseWidth);
-            if (newH > 0 && newH != getHeight())
-                setSize(getWidth(), newH);
-            resized();
-        };
-
-        setResizable(true, true);
-        const double ratio = (double) content.getHeight() / (double) EditorContent::kBaseWidth;
-        getConstrainer()->setFixedAspectRatio(ratio);
-        constexpr int minW = 440;
-        constexpr int defaultW = 720;
-        constexpr int maxW = 1920;
-        setResizeLimits(minW, (int) (minW * ratio), maxW, (int) (maxW * ratio));
-        setSize(defaultW, (int) (defaultW * ratio));
-    }
-
-    void paint(juce::Graphics& g) override
-    {
-        g.fillAll(juce::Colour(0xff181b20));
-    }
-
-    void resized() override
-    {
-        const int ch = content.getHeight();
-        const float sc = juce::jmin(getWidth() / (float) EditorContent::kBaseWidth,
-                                    ch > 0 ? getHeight() / (float) ch : 1.0f);
-        const int cw = juce::roundToInt(EditorContent::kBaseWidth * sc);
-        const int cht = juce::roundToInt(ch * sc);
-        content.setTopLeftPosition((getWidth() - cw) / 2, (getHeight() - cht) / 2);
-        content.setTransform(juce::AffineTransform::scale(sc));
-    }
-
-private:
-    EditorContent content;
 };
 
 juce::AudioProcessorEditor* ModelD3AudioProcessor::createEditor()
