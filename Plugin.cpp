@@ -921,19 +921,24 @@ struct MoogLadder
     static float coeff(float cutoffHz, float rate) noexcept
     {
         const float fc = juce::jlimit(20.0f, rate * 0.25f, cutoffHz);
-        return 1.0f - std::exp(-juce::MathConstants<float>::twoPi * fc / rate);
+        const float g = std::tan(juce::MathConstants<float>::pi * fc / rate);
+        return g / (1.0f + g);   // TPT-Stufengewinn G = g/(1+g)
     }
 
+    // Zero-Delay-Feedback (TPT) 4-Pol Moog-Ladder: kein Delay im Feedback-Pfad (zero latency),
+    // unkonditionell stabil bis k < 4, tanh im Loop gegen Aufschaukeln
     inline float process(float in, float g, float k) noexcept
     {
-        const float x = fastTanh(in - k * s4);
-        s1 += g * (x - s1);
-        s2 += g * (s1 - s2);
-        s3 += g * (s2 - s3);
-        s4 += g * (s3 - s4);
-        // Resonanz-Kompensation: DC-Verstaerkung des Ladders ist 1/(1+k); (1+k) gleicht den
-        // Bassverlust bei hoher Emphasis aus (zero-latency, kein zusaetzliches Delay)
-        return s4 * (1.0f + k);
+        const float v0 = (fastTanh(in - k * s4) - s1) * g;
+        const float y1 = v0 + s1;  s1 = y1 + v0;
+        const float v1 = (y1 - s2) * g;
+        const float y2 = v1 + s2;  s2 = y2 + v1;
+        const float v2 = (y2 - s3) * g;
+        const float y3 = v2 + s3;  s3 = y3 + v2;
+        const float v3 = (y3 - s4) * g;
+        const float y4 = v3 + s4;  s4 = y4 + v3;
+        // Resonanz-Kompensation: DC-Verstaerkung ist 1/(1+k) -> (1+k) haelt den Bass bei hoher Emphasis
+        return y4 * (1.0f + k);
     }
 };
 
@@ -1986,6 +1991,22 @@ private:
 // ==============================================================================
 // Editor
 // ==============================================================================
+class WheelComboBox : public juce::ComboBox
+{
+public:
+    void mouseWheelMove(const juce::MouseEvent& e) override
+    {
+        if (e.deltaY == 0.0f)
+            return;
+        const int n = getNumItems();
+        if (n <= 0)
+            return;
+        const int dir = (e.deltaY > 0.0f) ? 1 : -1;
+        setSelectedItemIndex(juce::jlimit(0, n - 1, getSelectedItemIndex() + dir),
+                             juce::sendNotificationSync);
+    }
+};
+
 struct EditorControl
 {
     std::unique_ptr<juce::Component> comp;
@@ -2304,7 +2325,7 @@ private:
 
     ModelD3AudioProcessor& audioProcessor;
     Wavetable2DDisplay wtDisplay;
-    juce::ComboBox presetBox;
+    WheelComboBox presetBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> presetAttachment;
     juce::TextButton loadBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
