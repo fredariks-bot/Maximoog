@@ -1139,13 +1139,11 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterInt>("arpOctaves", "Arp Octaves", 1, 3, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("arpGate", "Arp Gate", 0.1f, 0.95f, 0.75f));
 
-        // Compressor
-        params.push_back(std::make_unique<juce::AudioParameterBool>("compOn", "Compressor On", true));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("compThresh", "Comp Threshold (dB)", -40.0f, 0.0f, -15.0f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("compRatio", "Comp Ratio", 1.0f, 12.0f, 3.2f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("compAttack", "Comp Attack (ms)", 0.5f, 100.0f, 15.0f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("compRelease", "Comp Release (ms)", 10.0f, 500.0f, 140.0f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("compMakeup", "Comp Makeup (dB)", 0.0f, 18.0f, 2.5f));
+        // Chorus
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusRate", "Chorus Rate (Hz)",
+            juce::NormalisableRange<float>(0.05f, 8.0f, 0.01f, 0.5f), 0.8f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusDepth", "Chorus Depth", 0.0f, 1.0f, 0.5f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("chorusMix", "Chorus Mix", 0.0f, 1.0f, 0.35f));
 
         // Delay
         params.push_back(std::make_unique<juce::AudioParameterFloat>("delayTime", "Delay Time (ms)", 20.0f, 1200.0f, 420.0f));
@@ -1241,8 +1239,13 @@ public:
         juce::dsp::ProcessSpec stereoSpec { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2 };
         juce::dsp::ProcessSpec monoSpec   { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 1 };
 
-        compressor.prepare(stereoSpec);
-        compressor.reset();
+        chorusLineL.prepare(monoSpec);
+        chorusLineR.prepare(monoSpec);
+        chorusLineL.setMaximumDelayInSamples(static_cast<int>(sampleRate * 0.05));
+        chorusLineR.setMaximumDelayInSamples(static_cast<int>(sampleRate * 0.05));
+        chorusLineL.reset();
+        chorusLineR.reset();
+        chorusPhase = 0.0;
 
         delayLineL.prepare(monoSpec);
         delayLineR.prepare(monoSpec);
@@ -1614,18 +1617,38 @@ public:
         auto* leftPtr  = buffer.getWritePointer(0);
         auto* rightPtr = buffer.getWritePointer(1);
 
-        // 5. VCA Compressor
-        if (*apvts.getRawParameterValue("compOn") > 0.5f)
+        // 5. Stereo Chorus (LFO-modulierte Delaylines, gegenphasig L/R)
+        float chorusRate  = *apvts.getRawParameterValue("chorusRate");
+        float chorusDepth = *apvts.getRawParameterValue("chorusDepth");
+        float chorusMix   = *apvts.getRawParameterValue("chorusMix");
+
+        if (chorusMix > 0.001f)
         {
-            compressor.setThreshold(*apvts.getRawParameterValue("compThresh"));
-            compressor.setRatio(*apvts.getRawParameterValue("compRatio"));
-            compressor.setAttack(*apvts.getRawParameterValue("compAttack"));
-            compressor.setRelease(*apvts.getRawParameterValue("compRelease"));
+            const float centerS = 18.0f * 0.001f * currentSampleRate;
+            const float modS    = 9.0f * 0.001f * currentSampleRate * chorusDepth;
+            const double phaseInc = static_cast<double>(chorusRate) / currentSampleRate;
 
-            compressor.process(juce::dsp::ProcessContextReplacing<float>(stereoBlock));
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const double lfo = std::sin(juce::MathConstants<double>::twoPi * chorusPhase);
+                chorusPhase += phaseInc;
+                if (chorusPhase >= 1.0)
+                    chorusPhase -= 1.0;
 
-            float makeupGain = juce::Decibels::decibelsToGain(apvts.getRawParameterValue("compMakeup")->load());
-            buffer.applyGain(makeupGain);
+                const float inL = leftPtr[i];
+                const float inR = rightPtr[i];
+
+                const float dL = juce::jmax(1.0f, centerS + static_cast<float>(lfo) * modS);
+                const float dR = juce::jmax(1.0f, centerS - static_cast<float>(lfo) * modS);
+
+                const float wetL = chorusLineL.popSample(0, dL, true);
+                const float wetR = chorusLineR.popSample(0, dR, true);
+                chorusLineL.pushSample(0, inL);
+                chorusLineR.pushSample(0, inR);
+
+                leftPtr[i]  = inL * (1.0f - chorusMix * 0.5f) + wetL * chorusMix;
+                rightPtr[i] = inR * (1.0f - chorusMix * 0.5f) + wetR * chorusMix;
+            }
         }
 
         // 6. Stereo Ping-Pong / Dual Delay
@@ -1781,7 +1804,9 @@ private:
     std::atomic<float> currentEffectiveWtPos { 0.45f };
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
-    juce::dsp::Compressor<float> compressor;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> chorusLineL;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> chorusLineR;
+    double chorusPhase = 0.0;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineL;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLineR;
     juce::Reverb reverb;
@@ -1944,7 +1969,7 @@ public:
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
             { "MIXER", 1, { "drive", "masterGain" } },
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
-            { "COMPRESSOR", 1, { "compOn", "compThresh", "compRatio", "compAttack", "compRelease", "compMakeup" } },
+            { "CHORUS", 1, { "chorusRate", "chorusDepth", "chorusMix" } },
             { "DELAY", 1, { "delayTime", "delayFeedback", "delayMix" } },
             { "REVERB", 1, { "revSize", "revDamp", "revMix" } }
         };
