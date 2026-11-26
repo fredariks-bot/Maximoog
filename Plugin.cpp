@@ -25,6 +25,15 @@ namespace
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
     }
 
+    // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer die Sinus-Welle
+    inline float fastSinTwoPi(float p) noexcept
+    {
+        float x = 2.0f * p;
+        if (x > 1.0f) x -= 2.0f;
+        const float y = 4.0f * x * (1.0f - std::abs(x));
+        return 0.225f * (y * std::abs(y) - y) + y;
+    }
+
     // Controlrate-Chunk (in Samples des Oversampling-Raums): Drift, Pitch, WT-Morph
     constexpr int kChunk = 32;
 }
@@ -121,59 +130,133 @@ private:
 };
 
 // ==============================================================================
-// PolyBLEP-Oszillator (Phaseninkrement wird von aussen pro Chunk gesetzt)
+// Analog-Oszillator: PolyBLEP/BLAMP mit weicher Reset-Flanke, gekruemmter Saege,
+// Sinus-Welle und bandbegrenztem Hard-Sync (BLEP-Korrektur am Sync-Reset)
 // ==============================================================================
 class PolyBLEPOscillator
 {
 public:
-    enum Waveform { Saw = 0, Triangle, Square, PulseWide };
+    enum Waveform { Saw = 0, Triangle, Square, PulseWide, Sine };
 
-    void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); lastOutput = 0.0f; }
+    void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); pendingCorr = 0.0f; didWrap = false; }
     void setPhaseInc(double inc) noexcept { phaseInc = juce::jlimit(1.0e-4, 0.48, inc); }
     void setWaveform(int wf) noexcept { waveform = wf; }
 
+    // Master-Info: Phase ist in diesem Sample ueberlaufen (d = Bruchteil eines Samples seit dem Reset)
+    bool wrapped() const noexcept { return didWrap; }
+    double wrapFrac() const noexcept { return wrapD; }
+
     inline float processSample() noexcept
     {
-        const double t = phase;
-        const double dt = phaseInc;
-        float out;
+        const float out = render();
+        phase += phaseInc;
+        didWrap = false;
+        if (phase >= 1.0) { phase -= 1.0; didWrap = true; wrapD = phase / phaseInc; }
+        return out;
+    }
 
-        if (waveform == Saw)
+    // Slave: wird beim Phasenueberlauf des Masters auf Phase 0 zurueckgesetzt
+    inline float processSampleSync(bool masterWrapped, double d) noexcept
+    {
+        float out = render();
+        didWrap = false;
+
+        if (masterWrapped)
         {
-            out = static_cast<float>(2.0 * t - 1.0 - polyBLEP(t, dt));
-        }
-        else if (waveform == Square || waveform == PulseWide)
-        {
-            const double pw = (waveform == Square) ? 0.5 : 0.25;
-            double t2 = t + (1.0 - pw);
-            if (t2 >= 1.0) t2 -= 1.0;
-            out = ((t < pw) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dt) - polyBLEP(t2, dt));
+            double phiR = phase + (1.0 - d) * phaseInc;          // Slave-Phase im Reset-Moment
+            phiR -= std::floor(phiR);
+            const float D = shape(0.0) - shape(phiR);            // Sprunghoehe
+            out += 0.5f * D * static_cast<float>(d * d);         // BLEP vor dem Reset
+            pendingCorr = -0.5f * D * static_cast<float>((1.0 - d) * (1.0 - d));   // BLEP nach dem Reset
+            phase = d * phaseInc;
         }
         else
         {
-            double t2 = t + 0.5;
-            if (t2 >= 1.0) t2 -= 1.0;
-            const float sq = ((t < 0.5) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dt) - polyBLEP(t2, dt));
-            lastOutput = static_cast<float>(4.0 * dt * sq + (1.0 - 4.0 * dt) * lastOutput);
-            out = juce::jlimit(-1.0f, 1.0f, lastOutput * 1.15f);
+            phase += phaseInc;
+            if (phase >= 1.0) phase -= 1.0;
         }
-
-        phase += phaseInc;
-        if (phase >= 1.0) phase -= 1.0;
         return out;
     }
 
 private:
+    inline float render() noexcept
+    {
+        const double t = phase;
+        const double dt = phaseInc;
+        const double dw = std::min(dt * edgeSoftness, 0.49);   // weichere Flanke = runder, "analoger"
+        float out;
+
+        switch (waveform)
+        {
+            case Saw:
+            {
+                const float x = static_cast<float>(2.0 * t - 1.0 - polyBLEP(t, dw));
+                out = x + sawCurve * (x * x - 0.33333334f);    // leichte Kruemmung, DC-frei
+                break;
+            }
+            case Square:
+            case PulseWide:
+            {
+                const double pw = (waveform == Square) ? 0.5 : 0.25;
+                double t2 = t + (1.0 - pw);
+                if (t2 >= 1.0) t2 -= 1.0;
+                out = ((t < pw) ? 1.0f : -1.0f) + static_cast<float>(polyBLEP(t, dw) - polyBLEP(t2, dw));
+                break;
+            }
+            case Triangle:
+            {
+                double t2 = t + 0.5;
+                if (t2 >= 1.0) t2 -= 1.0;
+                const double tri = (t < 0.5) ? (4.0 * t - 1.0) : (3.0 - 4.0 * t);
+                out = static_cast<float>(tri + 8.0 * dt * (polyBLAMP(t, dt) - polyBLAMP(t2, dt)));
+                break;
+            }
+            default:
+                out = fastSinTwoPi(static_cast<float>(t));
+                break;
+        }
+
+        out += pendingCorr;
+        pendingCorr = 0.0f;
+        return out;
+    }
+
+    // Naive Kurvenform (ohne BLEP) fuer die Sync-Sprunghoehe
+    inline float shape(double p) const noexcept
+    {
+        float v;
+        switch (waveform)
+        {
+            case Saw:       { const float x = static_cast<float>(2.0 * p - 1.0); v = x + sawCurve * (x * x - 0.33333334f); break; }
+            case Triangle:  v = static_cast<float>((p < 0.5) ? (4.0 * p - 1.0) : (3.0 - 4.0 * p)); break;
+            case Square:    v = (p < 0.5)  ? 1.0f : -1.0f; break;
+            case PulseWide: v = (p < 0.25) ? 1.0f : -1.0f; break;
+            default:        v = fastSinTwoPi(static_cast<float>(p)); break;
+        }
+        return v;
+    }
+
     static inline double polyBLEP(double t, double dt) noexcept
     {
-        if (t < dt)            { t /= dt;            return t + t - t * t - 1.0; }
-        if (t > 1.0 - dt)      { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
+        if (t < dt)       { t /= dt;            return t + t - t * t - 1.0; }
+        if (t > 1.0 - dt) { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
         return 0.0;
     }
 
-    double phase = 0.0, phaseInc = 0.01;
-    float lastOutput = 0.0f;
+    static inline double polyBLAMP(double t, double dt) noexcept
+    {
+        if (t < dt)       { const double x = t / dt - 1.0;           return -(1.0 / 3.0) * x * x * x; }
+        if (t > 1.0 - dt) { const double x = (t - 1.0) / dt + 1.0;   return  (1.0 / 3.0) * x * x * x; }
+        return 0.0;
+    }
+
+    static constexpr double edgeSoftness = 1.35;
+    static constexpr float  sawCurve = 0.07f;
+
+    double phase = 0.0, phaseInc = 0.01, wrapD = 0.0;
+    float pendingCorr = 0.0f;
     int waveform = Saw;
+    bool didWrap = false;
 };
 
 // ==============================================================================
@@ -911,6 +994,13 @@ struct PolySynthVoice
     double currentFreq = 110.0;
     double targetFreq = 110.0;
     uint64_t noteOnAge = 0;
+    uint32_t phaseRng = 0x9E3779B9u;
+
+    double rand01() noexcept
+    {
+        phaseRng ^= phaseRng << 13; phaseRng ^= phaseRng >> 17; phaseRng ^= phaseRng << 5;
+        return static_cast<double>(phaseRng) * (1.0 / 4294967296.0);
+    }
 
     std::array<UnisonSubVoice, UnisonSubVoice::maxUnison> subVoices;
     AnalogEnvelope ampEnv;
@@ -922,6 +1012,7 @@ struct PolySynthVoice
         for (int u = 0; u < UnisonSubVoice::maxUnison; ++u)
             subVoices[static_cast<size_t>(u)].prepare(controlRate, polyIndex, u);
 
+        phaseRng = (0x9E3779B9u ^ (static_cast<uint32_t>(polyIndex + 1) * 2654435761u)) | 1u;
         ampEnv.setSampleRate(osRate);
         filterEnv.setSampleRate(osRate);
         ampEnv.reset();
@@ -941,6 +1032,11 @@ struct PolySynthVoice
         {
             ladderL.reset();
             ladderR.reset();
+            for (auto& sub : subVoices)
+            {
+                for (int o = 0; o < 3; ++o) sub.oscs[o].reset(rand01());
+                sub.wtOsc.reset(rand01());
+            }
         }
 
         if (!active && !legatoGlide)
@@ -968,6 +1064,7 @@ struct PolySynthVoice
     X(osc1On) X(osc1Wave) X(osc1Oct) X(osc1Detune) X(osc1Level) \
     X(osc2On) X(osc2Wave) X(osc2Oct) X(osc2Detune) X(osc2Level) \
     X(osc3On) X(osc3Wave) X(osc3Oct) X(osc3Detune) X(osc3Level) \
+    X(syncMode) X(syncPitch) X(syncEnv) \
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
     X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
@@ -1019,7 +1116,7 @@ public:
     {
         std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-        juce::StringArray waveChoices { "Sawtooth", "Triangle", "Square", "Pulse 25%" };
+        juce::StringArray waveChoices { "Sawtooth", "Triangle", "Square", "Pulse 25%", "Sine" };
         juce::StringArray octaveChoices { "32'", "16'", "8'", "4'", "2'" };
         juce::StringArray lfoWaveChoices { "Sine", "Triangle", "Saw Up", "Saw Down", "Smooth S&H" };
         juce::StringArray arpRateChoices { "1/4", "1/8", "1/8T", "1/16", "1/32" };
@@ -1037,7 +1134,7 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc1Level", "Osc 1 Level", 0.0f, 1.0f, 0.65f));
 
         params.push_back(std::make_unique<juce::AudioParameterBool>("osc2On", "Osc 2 On", true));
-        params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Wave", "Osc 2 Wave", waveChoices, 1));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Wave", "Osc 2 Wave", waveChoices, 0));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc2Oct", "Osc 2 Octave", octaveChoices, 2));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Detune", "Osc 2 Detune (ct)", -50.0f, 50.0f, 4.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Level", "Osc 2 Level", 0.0f, 1.0f, 0.60f));
@@ -1047,6 +1144,12 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc3Oct", "Osc 3 Octave", octaveChoices, 1));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Detune", "Osc 3 Detune (ct)", -50.0f, 50.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Level", "Osc 3 Level", 0.0f, 1.0f, 0.50f));
+
+        // Hard Sync: Osc 1 = Master, Osc 2/3 = Slave (Sweep ueber Sync Pitch + Filter-Huellkurve)
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("syncMode", "Sync Mode",
+            juce::StringArray { "Off", "Osc 2 > Osc 1", "Osc 3 > Osc 1", "Osc 2+3 > Osc 1" }, 0));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("syncPitch", "Sync Pitch (st)", 0.0f, 24.0f, 7.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("syncEnv", "Sync Env Amount (st)", 0.0f, 24.0f, 0.0f));
 
         params.push_back(std::make_unique<juce::AudioParameterBool>("wtOn", "WT Osc On", true));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("wtPreset", "WT Preset", WavetableBank::getPresetNames(), 0));
@@ -1105,7 +1208,7 @@ public:
 
         params.push_back(std::make_unique<juce::AudioParameterFloat>("masterGain", "Master Volume", 0.0f, 1.5f, 0.85f));
 
-        // Noise Generator (White / Pink)
+        // Noise Oszillator (White / Pink)
         params.push_back(std::make_unique<juce::AudioParameterBool>("noiseOn", "Noise On", false));
         params.push_back(std::make_unique<juce::AudioParameterChoice>("noiseType", "Noise Type",
             juce::StringArray { "White", "Pink" }, 0));
@@ -1340,6 +1443,15 @@ public:
         }
         else
         {
+            float gSq = 0.0f;
+            for (int u = 0; u < numUnison; ++u)
+            {
+                const float np = (2.0f * static_cast<float>(u) / static_cast<float>(numUnison - 1)) - 1.0f;
+                const float gu = 1.0f - 0.30f * std::abs(np);
+                gSq += gu * gu;
+            }
+            const float gainNorm = std::sqrt(static_cast<float>(numUnison) / gSq);
+
             for (int u = 0; u < numUnison; ++u)
             {
                 const double normPos = (2.0 * u / static_cast<double>(numUnison - 1)) - 1.0;
@@ -1347,8 +1459,9 @@ public:
                 voiceDetuneCents[static_cast<size_t>(u)] = curved * maxUnisonDetune;
 
                 const float panAngle = static_cast<float>((normPos * unisonSpread + 1.0) * 0.25 * juce::MathConstants<double>::pi);
-                voicePanL[static_cast<size_t>(u)] = std::cos(panAngle);
-                voicePanR[static_cast<size_t>(u)] = std::sin(panAngle);
+                const float gu = (1.0f - 0.30f * std::abs(static_cast<float>(normPos))) * gainNorm;
+                voicePanL[static_cast<size_t>(u)] = std::cos(panAngle) * gu;
+                voicePanR[static_cast<size_t>(u)] = std::sin(panAngle) * gu;
             }
         }
 
@@ -1368,6 +1481,12 @@ public:
         const bool noiseActive = pp.noiseOn->load() > 0.5f && noiseLevel > 0.0005f;
         const bool noisePink = static_cast<int>(pp.noiseType->load()) == 1;
 
+        const int syncModeIdx = static_cast<int>(pp.syncMode->load());
+        const bool slaveSync[3] = { false, syncModeIdx == 1 || syncModeIdx == 3, syncModeIdx == 2 || syncModeIdx == 3 };
+        const bool syncAny = syncModeIdx != 0;
+        const double syncPitchSt = static_cast<double>(pp.syncPitch->load());
+        const double syncEnvSt = static_cast<double>(pp.syncEnv->load());
+
         const float wtLevel = pp.wtLevel->load();
         const bool wtOn = pp.wtOn->load() > 0.5f && wtLevel > 0.0005f;
         const int wtOct = static_cast<int>(pp.wtOct->load());
@@ -1385,6 +1504,7 @@ public:
 
         const float drive = pp.drive->load();
         const float driveNorm = 1.0f / fastTanh(drive);
+        const float mixBias = 0.12f, mixBiasOut = fastTanh(0.12f);
         const float baseCutoff = pp.cutoff->load();
         const float resK = pp.resonance->load() * 4.0f;
         const float contourOct = pp.contour->load() * 5.0f;
@@ -1412,7 +1532,7 @@ public:
             {
                 if (!pv.active) continue;
 
-                pv.ampEnv.setParameters(aA, aD, aS, aR);
+                pv.ampEnv.setParameters(std::max(aA, 0.0012f), aD, aS, aR);
                 pv.filterEnv.setParameters(fA, fD, fS, aR);
 
                 for (int u = 0; u < numUnison; ++u)
@@ -1432,6 +1552,7 @@ public:
                     const float effPos = juce::jlimit(0.0f, 1.0f, wtPos + pv.filterEnv.getLevel() * wtEnv + lfoModVal);
                     latestWtPosForGui = effPos;
                     const bool wtActive = wtOn && wtRef.set(tablePtr, effPos);
+                    const double syncSemis = syncPitchSt + static_cast<double>(pv.filterEnv.getLevel()) * syncEnvSt;
 
                     for (int u = 0; u < numUnison; ++u)
                     {
@@ -1440,9 +1561,10 @@ public:
 
                         for (int o = 0; o < 3; ++o)
                         {
-                            if (!oscActive[o]) continue;
+                            if (!oscActive[o] && !(o == 0 && syncAny)) continue;
                             const double cents = static_cast<double>(oscDetune[o]) + uDet
-                                               + sub.driftGens[o].next(driftCents * oscDriftScale[o]);
+                                               + sub.driftGens[o].next(driftCents * oscDriftScale[o])
+                                               + (slaveSync[o] ? syncSemis * 100.0 : 0.0);
                             sub.oscs[o].setPhaseInc(pv.currentFreq * octMults[oscOct[o]] * std::exp2(cents / 1200.0) / osRate);
                         }
 
@@ -1463,9 +1585,16 @@ public:
                             auto& sub = pv.subVoices[static_cast<size_t>(u)];
                             float x = 0.0f;
 
-                            for (int o = 0; o < 3; ++o)
+                            if (oscActive[0] || syncAny)
+                            {
+                                const float m = sub.oscs[0].processSample();
+                                if (oscActive[0]) x += m * oscLevel[0];
+                            }
+
+                            for (int o = 1; o < 3; ++o)
                                 if (oscActive[o])
-                                    x += sub.oscs[o].processSample() * oscLevel[o];
+                                    x += (slaveSync[o] ? sub.oscs[o].processSampleSync(sub.oscs[0].wrapped(), sub.oscs[0].wrapFrac())
+                                                       : sub.oscs[o].processSample()) * oscLevel[o];
 
                             if (wtActive)
                                 x += sub.wtOsc.processSample(wtRef) * wtLevel;
@@ -1484,8 +1613,8 @@ public:
                         if ((s & 7) == 0)
                             g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct), static_cast<float>(osRate));
 
-                        const float inL = fastTanh(sumL * unisonGainComp * drive) * driveNorm;
-                        const float inR = fastTanh(sumR * unisonGainComp * drive) * driveNorm;
+                        const float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
+                        const float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
 
                         // Moog-Signalweg: Mixer -> VCF -> VCA
                         outL[s] += pv.ladderL.process(inL, g, resK) * envA * polyGainComp;
@@ -1897,7 +2026,7 @@ public:
             { "FILTER", 0, { "cutoff", "resonance", "contour" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
-            { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "analogDrift", "glide" } },
+            { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide" } },
             { "MIXER", 1, { "drive", "masterGain" } },
             { "ARPEGGIATOR", 1, { "arpOn", "arpRate", "arpMode", "arpOctaves", "arpGate" } },
             { "CHORUS", 1, { "chorusRate", "chorusDepth", "chorusMix" } },
