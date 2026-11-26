@@ -1178,7 +1178,7 @@ public:
         // Filter + Filter-Huellkurve (Contour jetzt in Oktaven: 0..1 = 0..5 Oktaven)
         params.push_back(std::make_unique<juce::AudioParameterFloat>("cutoff", "Filter Cutoff (Hz)",
             juce::NormalisableRange<float>(20.0f, 18000.0f, 0.1f, 0.3f), 1100.0f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("resonance", "Filter Emphasis", 0.0f, 0.98f, 0.22f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("resonance", "Filter Emphasis", 0.0f, 1.0f, 0.22f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("contour", "Filter Contour", 0.0f, 1.0f, 0.45f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fAttack", "Filter Attack (s)",
             juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.004f));
@@ -1524,7 +1524,9 @@ public:
         const float driveNorm = 1.0f / fastTanh(drive);
         const float mixBias = 0.12f, mixBiasOut = fastTanh(0.12f);
         const float baseCutoff = pp.cutoff->load();
-        const float resK = pp.resonance->load() * 4.0f;
+        // k >= 4 -> echte Selbstoszillation ("Zwitschern"); tanh im ZDF-Loop haelt es begrenzt.
+        // (1+k)-Kompensation am Filterausgang gleicht den Bassverlust wieder aus.
+        const float resK = pp.resonance->load() * 4.15f;
         const float contourOct = pp.contour->load() * 5.0f;
 
         // Wavetable einmal pro Block holen (kein Lock im Sample-Loop)
