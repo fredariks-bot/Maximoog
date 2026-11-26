@@ -22,7 +22,7 @@ namespace
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
     }
 
-    // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer Sinus-Layer und Sinus-Welle
+    // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer die Sinus-Welle
     inline float fastSinTwoPi(float p) noexcept
     {
         float x = 2.0f * p;
@@ -128,7 +128,7 @@ private:
 
 // ==============================================================================
 // Analog-Oszillator: PolyBLEP/BLAMP mit weicher Reset-Flanke, gekruemmter Saege,
-// Sinus-Layer und bandbegrenztem Hard-Sync (BLEP-Korrektur am Sync-Reset)
+// Sinus-Welle und bandbegrenztem Hard-Sync (BLEP-Korrektur am Sync-Reset)
 // ==============================================================================
 class PolyBLEPOscillator
 {
@@ -138,7 +138,6 @@ public:
     void reset(double initialPhase = 0.0) { phase = initialPhase - std::floor(initialPhase); pendingCorr = 0.0f; didWrap = false; }
     void setPhaseInc(double inc) noexcept { phaseInc = juce::jlimit(1.0e-4, 0.48, inc); }
     void setWaveform(int wf) noexcept { waveform = wf; }
-    void setSineLevel(float l) noexcept { sineLevel = l; }
 
     // Master-Info: Phase ist in diesem Sample ueberlaufen (d = Bruchteil eines Samples seit dem Reset)
     bool wrapped() const noexcept { return didWrap; }
@@ -214,9 +213,6 @@ private:
                 break;
         }
 
-        if (sineLevel > 0.0005f)
-            out += sineLevel * fastSinTwoPi(static_cast<float>(t));
-
         out += pendingCorr;
         pendingCorr = 0.0f;
         return out;
@@ -234,7 +230,7 @@ private:
             case PulseWide: v = (p < 0.25) ? 1.0f : -1.0f; break;
             default:        v = fastSinTwoPi(static_cast<float>(p)); break;
         }
-        return v + sineLevel * fastSinTwoPi(static_cast<float>(p));
+        return v;
     }
 
     static inline double polyBLEP(double t, double dt) noexcept
@@ -255,7 +251,7 @@ private:
     static constexpr float  sawCurve = 0.07f;
 
     double phase = 0.0, phaseInc = 0.01, wrapD = 0.0;
-    float sineLevel = 0.0f, pendingCorr = 0.0f;
+    float pendingCorr = 0.0f;
     int waveform = Saw;
     bool didWrap = false;
 };
@@ -1044,7 +1040,7 @@ struct PolySynthVoice
     X(osc1On) X(osc1Wave) X(osc1Oct) X(osc1Detune) X(osc1Level) \
     X(osc2On) X(osc2Wave) X(osc2Oct) X(osc2Detune) X(osc2Level) \
     X(osc3On) X(osc3Wave) X(osc3Oct) X(osc3Detune) X(osc3Level) \
-    X(osc1Sine) X(osc2Sine) X(osc3Sine) X(syncMode) X(syncPitch) X(syncEnv) \
+    X(syncMode) X(syncPitch) X(syncEnv) \
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
     X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
@@ -1123,11 +1119,6 @@ public:
         params.push_back(std::make_unique<juce::AudioParameterChoice>("osc3Oct", "Osc 3 Octave", octaveChoices, 1));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Detune", "Osc 3 Detune (ct)", -50.0f, 50.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Level", "Osc 3 Level", 0.0f, 1.0f, 0.50f));
-
-        // Sinus-Layer pro Oszillator (zusaetzlich zur gewaehlten Wellenform)
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("osc1Sine", "Osc 1 Sine Layer", 0.0f, 1.0f, 0.0f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("osc2Sine", "Osc 2 Sine Layer", 0.0f, 1.0f, 0.0f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("osc3Sine", "Osc 3 Sine Layer", 0.0f, 1.0f, 0.0f));
 
         // Hard Sync: Osc 1 = Master, Osc 2/3 = Slave (Sweep ueber Sync Pitch + Filter-Huellkurve)
         params.push_back(std::make_unique<juce::AudioParameterChoice>("syncMode", "Sync Mode",
@@ -1446,7 +1437,6 @@ public:
         const int oscWave[3] = { static_cast<int>(pp.osc1Wave->load()), static_cast<int>(pp.osc2Wave->load()), static_cast<int>(pp.osc3Wave->load()) };
         const int oscOct[3]  = { static_cast<int>(pp.osc1Oct->load()),  static_cast<int>(pp.osc2Oct->load()),  static_cast<int>(pp.osc3Oct->load()) };
         const float oscDetune[3] = { pp.osc1Detune->load(), pp.osc2Detune->load(), pp.osc3Detune->load() };
-        const float oscSine[3] = { pp.osc1Sine->load(), pp.osc2Sine->load(), pp.osc3Sine->load() };
 
         const int syncModeIdx = static_cast<int>(pp.syncMode->load());
         const bool slaveSync[3] = { false, syncModeIdx == 1 || syncModeIdx == 3, syncModeIdx == 2 || syncModeIdx == 3 };
@@ -1504,10 +1494,7 @@ public:
 
                 for (int u = 0; u < numUnison; ++u)
                     for (int o = 0; o < 3; ++o)
-                    {
                         pv.subVoices[static_cast<size_t>(u)].oscs[o].setWaveform(oscWave[o]);
-                        pv.subVoices[static_cast<size_t>(u)].oscs[o].setSineLevel(oscSine[o]);
-                    }
 
                 float g = 0.0f;
                 WtFrameRef wtRef;
