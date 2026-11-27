@@ -25,6 +25,16 @@ namespace
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
     }
 
+    // Praezises tanh (Kettenbruch 7. Ordnung, Fehler < 1e-5) fuer den Filter Drive
+    inline float hqTanh(float x) noexcept
+    {
+        x = juce::jlimit(-4.97f, 4.97f, x);
+        const float x2 = x * x;
+        const float num = x * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));
+        const float den = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
+        return num / den;
+    }
+
     // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer die Sinus-Welle
     inline float fastSinTwoPi(float p) noexcept
     {
@@ -1075,7 +1085,7 @@ struct PolySynthVoice
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
     X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(lfoToFilter) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
-    X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
+    X(cutoff) X(resonance) X(contour) X(filterDrive) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) X(arpHold) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
@@ -1217,6 +1227,7 @@ public:
             juce::NormalisableRange<float>(20.0f, 18000.0f, 0.1f, 0.3f), 1100.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("resonance", "Filter Emphasis", 0.0f, 1.0f, 0.22f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("contour", "Filter Contour", 0.0f, 1.0f, 0.45f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("filterDrive", "Filter Drive", 0.0f, 1.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fAttack", "Filter Attack (s)",
             juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.004f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fDecay", "Filter Decay (s)",
@@ -1288,6 +1299,12 @@ public:
 
     std::shared_ptr<WavetableData> getActiveWavetable() const { return std::atomic_load(&activeWavetable); }
     float getCurrentEffectiveWtPos() const { return currentEffectiveWtPos.load(); }
+
+    // Pegelanzeige (Peak seit der letzten Abfrage, Clip-Latch)
+    float takePeakL() { return meterPeakL.exchange(0.0f); }
+    float takePeakR() { return meterPeakR.exchange(0.0f); }
+    bool isClipLatched() const { return clipLatched.load(); }
+    void resetClip() { clipLatched.store(false); }
 
     const juce::String getName() const override { return "Model D-3 Synth"; }
     bool acceptsMidi() const override { return true; }
@@ -1483,10 +1500,14 @@ public:
         }
 
         // 3. Globale Parameter (einmal pro Block)
-        const float lfoModVal = wtLfo.processBlock(numSamples, pp.wtLfoRate->load(),
-                                                   static_cast<int>(pp.wtLfoWave->load()))
-                              * pp.wtLfoAmt->load() * 0.5f;
-        const float lfoFilt = (pp.lfoToFilter->load() > 0.5f) ? lfoModVal * 2.0f : 0.0f;
+        const float lfoRaw = wtLfo.processBlock(numSamples, pp.wtLfoRate->load(),
+                                                static_cast<int>(pp.wtLfoWave->load()))
+                           * pp.wtLfoAmt->load() * 0.5f;
+        const bool lfoToFilterOn = pp.lfoToFilter->load() > 0.5f;
+        const float lfoModVal = lfoToFilterOn ? 0.0f : lfoRaw;          // nur Wavetable
+        const float lfoFilt   = lfoToFilterOn ? lfoRaw * 2.0f : 0.0f;   // nur Filter (+-2 Oktaven)
+        const float lfoFiltStart = lfoFiltPrev;
+        lfoFiltPrev = lfoFilt;
 
         const float aA = pp.aAttack->load(), aD = pp.aDecay->load(), aS = pp.aSustain->load(), aR = pp.aRelease->load();
         const float fA = pp.fAttack->load(), fD = pp.fDecay->load(), fS = pp.fSustain->load(), fR = pp.fRelease->load();
@@ -1574,6 +1595,12 @@ public:
         const float resK = pp.resonance->load() * 4.15f;
         const float contourOct = pp.contour->load() * 5.0f;
 
+        // Filter Drive (vor dem Ladder): 0..1 = 0..+24 dB, peak-normiert + Pegelkompensation
+        const float fDrive = pp.filterDrive->load();
+        const bool fdOn = fDrive > 0.001f;
+        const float fdGain = std::pow(10.0f, fDrive * (24.0f / 20.0f));
+        const float fdScale = (1.0f / hqTanh(fdGain)) / std::sqrt(1.0f + 0.35f * (fdGain - 1.0f));
+
         // Wavetable einmal pro Block holen (kein Lock im Sample-Loop)
         const auto table = std::atomic_load(&activeWavetable);
         const WavetableData* tablePtr = table.get();
@@ -1590,6 +1617,7 @@ public:
         {
             auto osBlock = osPtr.load()->processSamplesUp(stereoBlock);
             const int osN = static_cast<int>(osBlock.getNumSamples());
+            const float invOsN = 1.0f / static_cast<float>(osN);
             float* outL = osBlock.getChannelPointer(0);
             float* outR = osBlock.getChannelPointer(1);
 
@@ -1675,12 +1703,19 @@ public:
                         const float envF = pv.filterEnv.getNextSample();
 
                         // Cutoff folgt Huellkurve + LFO in jedem Sample (maximal knackig, zero-latency)
-                        g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct + lfoFilt), static_cast<float>(osRate));
+                        const float lfoFiltNow = lfoFiltStart + (lfoFilt - lfoFiltStart) * (static_cast<float>(s) * invOsN);
+                        g = MoogLadder::coeff(baseCutoff * std::exp2(envF * contourOct + lfoFiltNow), static_cast<float>(osRate));
 
-                        const float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
-                        const float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
+                        float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
+                        float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
 
-                        // Moog-Signalweg: Mixer -> VCF -> VCA
+                        if (fdOn)
+                        {
+                            inL = hqTanh(inL * fdGain) * fdScale;
+                            inR = hqTanh(inR * fdGain) * fdScale;
+                        }
+
+                        // Moog-Signalweg: Mixer -> Filter Drive -> VCF -> VCA
                         outL[s] += pv.ladderL.process(inL, g, resK) * envA * polyGainComp;
                         outR[s] += pv.ladderR.process(inR, g, resK) * envA * polyGainComp;
                     }
@@ -1771,14 +1806,24 @@ public:
             reverb.processStereo(leftPtr, rightPtr, numSamples);
         }
 
-        // 8. Master + Safety-Limiter (Soft-Clip via fastTanh statt hartem Clipping -> kein Knistern)
+        // 8. Master + Safety-Limiter (Soft-Clip) mit Pegelmessung vor dem Clipper
         const float master = pp.masterGain->load();
+        float peaks[2] = { 0.0f, 0.0f };
         for (int ch = 0; ch < 2; ++ch)
         {
             auto* d = buffer.getWritePointer(ch);
+            float pk = 0.0f;
             for (int i = 0; i < numSamples; ++i)
-                d[i] = fastTanh(d[i] * master);
+            {
+                const float v = d[i] * master;
+                pk = std::max(pk, std::abs(v));
+                d[i] = fastTanh(v);
+            }
+            peaks[ch] = pk;
         }
+        if (peaks[0] > meterPeakL.load()) meterPeakL.store(peaks[0]);
+        if (peaks[1] > meterPeakR.load()) meterPeakR.store(peaks[1]);
+        if (std::max(peaks[0], peaks[1]) > 1.0f) clipLatched.store(true);
     }
 
     bool hasEditor() const override { return true; }
@@ -1922,6 +1967,8 @@ private:
     juce::String loadedWavetablePath;
     int appliedPresetIdx = 0;
     std::atomic<float> currentEffectiveWtPos { 0.45f };
+    std::atomic<float> meterPeakL { 0.0f }, meterPeakR { 0.0f };
+    std::atomic<bool> clipLatched { false };
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> chorusLineL;
@@ -1932,6 +1979,7 @@ private:
     juce::Reverb reverb;
     float revSizeSm = 0.78f, revDampSm = 0.35f, revMixSm = 0.38f;
     float revSmoothK = 0.0f;
+    float lfoFiltPrev = 0.0f;
 
     std::vector<int> heldNotes, arpSorted, arpPattern;
     double arpCounter = 0.0;
@@ -2042,6 +2090,112 @@ private:
 };
 
 // ==============================================================================
+// Pegelanzeige (Stereo, Peak-Hold, CLIP-LED - Klick auf die Anzeige setzt CLIP zurueck)
+// ==============================================================================
+class LevelMeter : public juce::Component, private juce::Timer
+{
+public:
+    explicit LevelMeter(ModelD3AudioProcessor& p) : processor(p)
+    {
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        startTimerHz(30);
+    }
+
+    void mouseDown(const juce::MouseEvent&) override
+    {
+        processor.resetClip();
+        clip = false;
+        holdL = holdR = minDb;
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto b = getLocalBounds().toFloat();
+
+        auto led = b.removeFromRight(44.0f).withSizeKeepingCentre(40.0f, 16.0f);
+        g.setColour(clip ? juce::Colour(0xffff2a2a) : juce::Colour(0xff3a2226));
+        g.fillRoundedRectangle(led, 3.0f);
+        g.setColour(clip ? juce::Colours::white : juce::Colour(0xff7a5a5e));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        g.drawText("CLIP", led, juce::Justification::centred, false);
+
+        auto labelArea = b.removeFromLeft(30.0f);
+        g.setColour(juce::Colour(0xff8fa3bf));
+        g.drawText("OUT", labelArea.withHeight(23.0f), juce::Justification::centredLeft, false);
+
+        b.removeFromLeft(4.0f);
+        b.removeFromRight(8.0f);
+
+        auto barL = b.removeFromTop(10.0f);
+        b.removeFromTop(3.0f);
+        auto barR = b.removeFromTop(10.0f);
+        b.removeFromTop(1.0f);
+        drawBar(g, barL, dispL, holdL);
+        drawBar(g, barR, dispR, holdR);
+
+        g.setColour(juce::Colour(0xff8fa3bf));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)));
+        for (float db : { -48.0f, -24.0f, -12.0f, -6.0f, 0.0f })
+            g.drawText(juce::String(static_cast<int>(db)),
+                       juce::Rectangle<float>(dbToX(db, barL) - 14.0f, b.getY(), 28.0f, b.getHeight()),
+                       juce::Justification::centred, false);
+    }
+
+private:
+    static constexpr float minDb = -48.0f, maxDb = 6.0f;
+
+    static float dbToX(float db, juce::Rectangle<float> r)
+    {
+        return r.getX() + juce::jlimit(0.0f, 1.0f, (db - minDb) / (maxDb - minDb)) * r.getWidth();
+    }
+
+    void drawBar(juce::Graphics& g, juce::Rectangle<float> r, float db, float hold) const
+    {
+        g.setColour(juce::Colour(0xff0a0c10));
+        g.fillRoundedRectangle(r, 2.0f);
+
+        juce::ColourGradient grad(juce::Colour(0xff2bd96b), r.getX(), r.getY(),
+                                  juce::Colour(0xffff2a2a), r.getRight(), r.getY(), false);
+        grad.addColour(0.667, juce::Colour(0xffe6d62a));   // ab -12 dB
+        grad.addColour(0.833, juce::Colour(0xffff8a2a));   // ab  -3 dB
+        grad.addColour(0.889, juce::Colour(0xffff2a2a));   // ab   0 dB
+
+        g.saveState();
+        g.reduceClipRegion(r.withRight(dbToX(db, r)).toNearestInt());
+        g.setGradientFill(grad);
+        g.fillRoundedRectangle(r, 2.0f);
+        g.restoreState();
+
+        g.setColour(juce::Colours::white.withAlpha(0.9f));
+        g.fillRect(dbToX(hold, r) - 1.0f, r.getY(), 2.0f, r.getHeight());
+    }
+
+    static void update(float& disp, float& hold, int& counter, float peak)
+    {
+        const float db = juce::Decibels::gainToDecibels(peak, minDb);
+        disp = (db >= disp) ? db : std::max(db, disp - 1.8f);
+
+        if (db >= hold)       { hold = db; counter = 30; }
+        else if (counter > 0) { --counter; }
+        else                  { hold = std::max(minDb, hold - 0.5f); }
+    }
+
+    void timerCallback() override
+    {
+        update(dispL, holdL, counterL, processor.takePeakL());
+        update(dispR, holdR, counterR, processor.takePeakR());
+        clip = processor.isClipLatched();
+        repaint();
+    }
+
+    ModelD3AudioProcessor& processor;
+    float dispL = minDb, dispR = minDb, holdL = minDb, holdR = minDb;
+    int counterL = 0, counterR = 0;
+    bool clip = false;
+};
+
+// ==============================================================================
 // Editor
 // ==============================================================================
 class WheelComboBox : public juce::ComboBox
@@ -2082,6 +2236,8 @@ struct EditorSection
     juce::Rectangle<int> area;
     std::unique_ptr<juce::Label> header;
     std::vector<EditorControl> controls;
+    std::unique_ptr<juce::Component> extra;
+    int extraH = 0;
 };
 
 class EditorContent : public juce::Component, private juce::AudioProcessorValueTreeState::Listener
@@ -2110,7 +2266,7 @@ public:
             { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
             { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
             { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "lfoToFilter", "wtLevel" } },
-            { "FILTER", 0, { "cutoff", "resonance", "contour" } },
+            { "FILTER", 0, { "cutoff", "resonance", "contour", "filterDrive" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain", "fRelease" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide", "oversampling" } },
@@ -2141,6 +2297,14 @@ public:
                     placed.add(id);
                 }
             }
+
+            if (def.title == "MIXER")
+            {
+                s.extra = std::make_unique<LevelMeter>(audioProcessor);
+                addAndMakeVisible(*s.extra);
+                s.extraH = 40;
+            }
+
             sections.push_back(std::move(s));
         }
 
@@ -2328,7 +2492,7 @@ private:
 
             const int rowH = maxCtrlH + labelH + 6;
             const int rows = (n + colsPerRow - 1) / colsPerRow;
-            const int h = headerH + rows * rowH + 6;
+            const int h = headerH + rows * rowH + 6 + s.extraH;
 
             const int x = colX[col];
             int y = colY[col];
@@ -2354,7 +2518,10 @@ private:
                 ctl.label->setBounds(cx + pad4, cy + maxCtrlH + pad2, cellW - 2 * pad4, labelH);
             }
 
-            colY[col] = y + rows * rowH + sectionGap;
+            if (s.extra != nullptr)
+                s.extra->setBounds(x + pad4, y + rows * rowH, colW - 2 * pad4, s.extraH - 4);
+
+            colY[col] = y + rows * rowH + s.extraH + sectionGap;
         }
 
         return juce::jmax(colY[0], colY[1]);
