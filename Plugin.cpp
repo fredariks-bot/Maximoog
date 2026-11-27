@@ -25,16 +25,6 @@ namespace
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
     }
 
-    // Praezises tanh (Kettenbruch 7. Ordnung, Fehler < 1e-5) fuer den Filter Drive
-    inline float hqTanh(float x) noexcept
-    {
-        x = juce::jlimit(-4.97f, 4.97f, x);
-        const float x2 = x * x;
-        const float num = x * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));
-        const float den = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
-        return num / den;
-    }
-
     // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer die Sinus-Welle
     inline float fastSinTwoPi(float p) noexcept
     {
@@ -953,39 +943,6 @@ struct MoogLadder
 };
 
 // ==============================================================================
-// Filter-Drive-Stufe (vor dem Ladder): asymmetrisches Soft-Clip -> gerade
-// Harmonische (2., 4., ... = warm/fett), leichter Hoehen-Pre-Emphasis vor dem
-// Clipper (Resonanzbereich sizzelt mit), Parallel-Anteil Dry/Wet (Korper bleibt
-// erhalten) und DC-Blocker nach dem asymmetrischen Clip.
-// ==============================================================================
-struct FilterDriveStage
-{
-    float edgePrev = 0.0f;
-    float dcInPrev = 0.0f, dcOutPrev = 0.0f;
-
-    void reset() { edgePrev = dcInPrev = dcOutPrev = 0.0f; }
-
-    inline float process(float x, float gain, float asym, float edge, float par, float dcR) noexcept
-    {
-        const float xe = x + edge * (x - edgePrev);
-        edgePrev = x;
-
-        // t + asym*x*t: der x*t-Anteil saettigt zu |x| und haelt damit die geraden
-        // Harmonischen (2., 4., ...) auch bei vollem Drive erhalten (reines tanh
-        // wuerde zu einem symmetrischen Rechteck kollabieren).
-        const float t = hqTanh(xe * gain);
-        const float wet = (t + asym * xe * t) / (hqTanh(gain) * (1.0f + asym));
-
-        const float y = x * (1.0f - par) + wet * par;
-
-        const float out = y - dcInPrev + dcR * dcOutPrev;
-        dcInPrev = y;
-        dcOutPrev = out;
-        return out;
-    }
-};
-
-// ==============================================================================
 // Unison Sub-Voice / Poly Voice
 // ==============================================================================
 struct UnisonSubVoice
@@ -1056,7 +1013,6 @@ struct PolySynthVoice
     AnalogEnvelope ampEnv;
     AnalogEnvelope filterEnv;
     MoogLadder ladderL, ladderR;
-    FilterDriveStage fdL, fdR;
 
     void prepare(double osRate, double controlRate, int polyIndex)
     {
@@ -1070,8 +1026,6 @@ struct PolySynthVoice
         filterEnv.reset();
         ladderL.reset();
         ladderR.reset();
-        fdL.reset();
-        fdR.reset();
     }
 
     void startNote(int note, float vel, double lastGlobalFreq, bool legatoGlide, uint64_t age)
@@ -1085,8 +1039,6 @@ struct PolySynthVoice
         {
             ladderL.reset();
             ladderR.reset();
-            fdL.reset();
-            fdR.reset();
             for (auto& sub : subVoices)
             {
                 for (int o = 0; o < 3; ++o) sub.oscs[o].reset(rand01());
@@ -1123,7 +1075,7 @@ struct PolySynthVoice
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
     X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(lfoToFilter) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
-    X(cutoff) X(resonance) X(contour) X(filterDrive) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
+    X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) X(arpHold) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
@@ -1265,7 +1217,6 @@ public:
             juce::NormalisableRange<float>(20.0f, 18000.0f, 0.1f, 0.3f), 1100.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("resonance", "Filter Emphasis", 0.0f, 1.0f, 0.22f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("contour", "Filter Contour", 0.0f, 1.0f, 0.45f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("filterDrive", "Filter Drive", 0.0f, 1.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fAttack", "Filter Attack (s)",
             juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.004f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fDecay", "Filter Decay (s)",
@@ -1633,17 +1584,6 @@ public:
         const float resK = pp.resonance->load() * 4.15f;
         const float contourOct = pp.contour->load() * 5.0f;
 
-        // Filter Drive (vor dem Ladder): 0..1 = 0..+30 dB Gain in asymmetrisches Soft-Clip
-        // (gerade Harmonische = fett), peak-normiert. Asymmetrie/Edge/Parallel-Anteil folgen
-        // dem Regler, DC-Blocker-Pol aus der Oversampling-Rate (siehe FilterDriveStage).
-        const float fDrive = pp.filterDrive->load();
-        const bool fdOn = fDrive > 0.001f;
-        const float fdGain = std::pow(10.0f, fDrive * (30.0f / 20.0f));
-        const float fdAsym = 0.80f * fDrive;
-        const float fdEdge = 0.30f * fDrive;
-        const float fdPar  = 0.35f + 0.30f * fDrive;
-        const float fdDcR  = std::exp(-juce::MathConstants<float>::twoPi * 20.0f / static_cast<float>(osRate));
-
         // Wavetable einmal pro Block holen (kein Lock im Sample-Loop)
         const auto table = std::atomic_load(&activeWavetable);
         const WavetableData* tablePtr = table.get();
@@ -1752,13 +1692,7 @@ public:
                         float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
                         float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
 
-                        if (fdOn)
-                        {
-                            inL = pv.fdL.process(inL, fdGain, fdAsym, fdEdge, fdPar, fdDcR);
-                            inR = pv.fdR.process(inR, fdGain, fdAsym, fdEdge, fdPar, fdDcR);
-                        }
-
-                        // Moog-Signalweg: Mixer -> Filter Drive -> VCF -> VCA
+                        // Moog-Signalweg: Mixer -> VCF -> VCA
                         outL[s] += pv.ladderL.process(inL, g, resK) * envA * polyGainComp;
                         outR[s] += pv.ladderR.process(inR, g, resK) * envA * polyGainComp;
                     }
@@ -2309,7 +2243,7 @@ public:
             { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
             { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
             { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "lfoToFilter", "wtLevel" } },
-            { "FILTER", 0, { "cutoff", "resonance", "contour", "filterDrive" } },
+            { "FILTER", 0, { "cutoff", "resonance", "contour" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain", "fRelease" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide", "oversampling" } },
