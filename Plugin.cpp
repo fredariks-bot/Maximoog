@@ -953,6 +953,39 @@ struct MoogLadder
 };
 
 // ==============================================================================
+// Filter-Drive-Stufe (vor dem Ladder): asymmetrisches Soft-Clip -> gerade
+// Harmonische (2., 4., ... = warm/fett), leichter Hoehen-Pre-Emphasis vor dem
+// Clipper (Resonanzbereich sizzelt mit), Parallel-Anteil Dry/Wet (Korper bleibt
+// erhalten) und DC-Blocker nach dem asymmetrischen Clip.
+// ==============================================================================
+struct FilterDriveStage
+{
+    float edgePrev = 0.0f;
+    float dcInPrev = 0.0f, dcOutPrev = 0.0f;
+
+    void reset() { edgePrev = dcInPrev = dcOutPrev = 0.0f; }
+
+    inline float process(float x, float gain, float asym, float edge, float par, float dcR) noexcept
+    {
+        const float xe = x + edge * (x - edgePrev);
+        edgePrev = x;
+
+        // t + asym*x*t: der x*t-Anteil saettigt zu |x| und haelt damit die geraden
+        // Harmonischen (2., 4., ...) auch bei vollem Drive erhalten (reines tanh
+        // wuerde zu einem symmetrischen Rechteck kollabieren).
+        const float t = hqTanh(xe * gain);
+        const float wet = (t + asym * xe * t) / (hqTanh(gain) * (1.0f + asym));
+
+        const float y = x * (1.0f - par) + wet * par;
+
+        const float out = y - dcInPrev + dcR * dcOutPrev;
+        dcInPrev = y;
+        dcOutPrev = out;
+        return out;
+    }
+};
+
+// ==============================================================================
 // Unison Sub-Voice / Poly Voice
 // ==============================================================================
 struct UnisonSubVoice
@@ -1023,6 +1056,7 @@ struct PolySynthVoice
     AnalogEnvelope ampEnv;
     AnalogEnvelope filterEnv;
     MoogLadder ladderL, ladderR;
+    FilterDriveStage fdL, fdR;
 
     void prepare(double osRate, double controlRate, int polyIndex)
     {
@@ -1036,6 +1070,8 @@ struct PolySynthVoice
         filterEnv.reset();
         ladderL.reset();
         ladderR.reset();
+        fdL.reset();
+        fdR.reset();
     }
 
     void startNote(int note, float vel, double lastGlobalFreq, bool legatoGlide, uint64_t age)
@@ -1049,6 +1085,8 @@ struct PolySynthVoice
         {
             ladderL.reset();
             ladderR.reset();
+            fdL.reset();
+            fdR.reset();
             for (auto& sub : subVoices)
             {
                 for (int o = 0; o < 3; ++o) sub.oscs[o].reset(rand01());
@@ -1595,11 +1633,16 @@ public:
         const float resK = pp.resonance->load() * 4.15f;
         const float contourOct = pp.contour->load() * 5.0f;
 
-        // Filter Drive (vor dem Ladder): 0..1 = 0..+24 dB, peak-normiert + Pegelkompensation
+        // Filter Drive (vor dem Ladder): 0..1 = 0..+30 dB Gain in asymmetrisches Soft-Clip
+        // (gerade Harmonische = fett), peak-normiert. Asymmetrie/Edge/Parallel-Anteil folgen
+        // dem Regler, DC-Blocker-Pol aus der Oversampling-Rate (siehe FilterDriveStage).
         const float fDrive = pp.filterDrive->load();
         const bool fdOn = fDrive > 0.001f;
-        const float fdGain = std::pow(10.0f, fDrive * (24.0f / 20.0f));
-        const float fdScale = (1.0f / hqTanh(fdGain)) / std::sqrt(1.0f + 0.35f * (fdGain - 1.0f));
+        const float fdGain = std::pow(10.0f, fDrive * (30.0f / 20.0f));
+        const float fdAsym = 0.80f * fDrive;
+        const float fdEdge = 0.30f * fDrive;
+        const float fdPar  = 0.35f + 0.30f * fDrive;
+        const float fdDcR  = std::exp(-juce::MathConstants<float>::twoPi * 20.0f / static_cast<float>(osRate));
 
         // Wavetable einmal pro Block holen (kein Lock im Sample-Loop)
         const auto table = std::atomic_load(&activeWavetable);
@@ -1711,8 +1754,8 @@ public:
 
                         if (fdOn)
                         {
-                            inL = hqTanh(inL * fdGain) * fdScale;
-                            inR = hqTanh(inR * fdGain) * fdScale;
+                            inL = pv.fdL.process(inL, fdGain, fdAsym, fdEdge, fdPar, fdDcR);
+                            inR = pv.fdR.process(inR, fdGain, fdAsym, fdEdge, fdPar, fdDcR);
                         }
 
                         // Moog-Signalweg: Mixer -> Filter Drive -> VCF -> VCA
