@@ -1,4 +1,4 @@
-name: Build Model D-3 Synth (Windows VST3)
+name: Build Model D-3 Synth (Windows VST3 + Standalone)
 
 on:
   push:
@@ -18,12 +18,19 @@ jobs:
       - name: Configure CMake
         run: cmake -B build -G "Visual Studio 17 2022" -A x64
 
-      - name: Build VST3 Release
-        run: cmake --build build --config Release --target ModelD3Synth_VST3
+      - name: Build VST3 + Standalone Release
+        run: cmake --build build --config Release --target ModelD3Synth_VST3 ModelD3Synth_Standalone
 
       - name: Upload VST3 Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Model-D-3-Synth-Windows-VST3
           path: build/ModelD3Synth_artefacts/**/*.vst3
+          if-no-files-found: error
+
+      - name: Upload Standalone Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Model-D-3-Synth-Windows-Standalone
+          path: build/ModelD3Synth_artefacts/Standalone/**
           if-no-files-found: error
