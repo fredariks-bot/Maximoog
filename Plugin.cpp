@@ -25,16 +25,6 @@ namespace
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
     }
 
-    // Praezises tanh (Kettenbruch 7. Ordnung, Fehler < 1e-5) fuer den Filter Drive
-    inline float hqTanh(float x) noexcept
-    {
-        x = juce::jlimit(-4.97f, 4.97f, x);
-        const float x2 = x * x;
-        const float num = x * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));
-        const float den = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
-        return num / den;
-    }
-
     // sin(2*pi*p) fuer p in [0,1) - sehr billig, fuer die Sinus-Welle
     inline float fastSinTwoPi(float p) noexcept
     {
@@ -1085,7 +1075,7 @@ struct PolySynthVoice
     X(wtOn) X(wtPreset) X(wtOct) X(wtDetune) X(wtPos) X(wtEnvAmt) \
     X(wtLfoWave) X(wtLfoRate) X(wtLfoAmt) X(lfoToFilter) X(wtLevel) \
     X(analogDrift) X(glide) X(drive) \
-    X(cutoff) X(resonance) X(contour) X(filterDrive) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
+    X(cutoff) X(resonance) X(contour) X(fAttack) X(fDecay) X(fSustain) X(fRelease) \
     X(aAttack) X(aDecay) X(aSustain) X(aRelease) \
     X(arpOn) X(arpRate) X(arpMode) X(arpOctaves) X(arpGate) X(arpHold) \
     X(chorusRate) X(chorusDepth) X(chorusMix) \
@@ -1227,7 +1217,6 @@ public:
             juce::NormalisableRange<float>(20.0f, 18000.0f, 0.1f, 0.3f), 1100.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("resonance", "Filter Emphasis", 0.0f, 1.0f, 0.22f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("contour", "Filter Contour", 0.0f, 1.0f, 0.45f));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("filterDrive", "Filter Drive", 0.0f, 1.0f, 0.0f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fAttack", "Filter Attack (s)",
             juce::NormalisableRange<float>(0.001f, 4.0f, 0.0001f, 0.4f), 0.004f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fDecay", "Filter Decay (s)",
@@ -1595,12 +1584,6 @@ public:
         const float resK = pp.resonance->load() * 4.15f;
         const float contourOct = pp.contour->load() * 5.0f;
 
-        // Filter Drive (vor dem Ladder): 0..1 = 0..+24 dB, peak-normiert + Pegelkompensation
-        const float fDrive = pp.filterDrive->load();
-        const bool fdOn = fDrive > 0.001f;
-        const float fdGain = std::pow(10.0f, fDrive * (24.0f / 20.0f));
-        const float fdScale = (1.0f / hqTanh(fdGain)) / std::sqrt(1.0f + 0.35f * (fdGain - 1.0f));
-
         // Wavetable einmal pro Block holen (kein Lock im Sample-Loop)
         const auto table = std::atomic_load(&activeWavetable);
         const WavetableData* tablePtr = table.get();
@@ -1709,13 +1692,7 @@ public:
                         float inL = (fastTanh(sumL * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
                         float inR = (fastTanh(sumR * unisonGainComp * drive + mixBias) - mixBiasOut) * driveNorm;
 
-                        if (fdOn)
-                        {
-                            inL = hqTanh(inL * fdGain) * fdScale;
-                            inR = hqTanh(inR * fdGain) * fdScale;
-                        }
-
-                        // Moog-Signalweg: Mixer -> Filter Drive -> VCF -> VCA
+                        // Moog-Signalweg: Mixer -> VCF -> VCA
                         outL[s] += pv.ladderL.process(inL, g, resK) * envA * polyGainComp;
                         outR[s] += pv.ladderR.process(inR, g, resK) * envA * polyGainComp;
                     }
@@ -2266,7 +2243,7 @@ public:
             { "OSC 2", 0, { "osc2On", "osc2Wave", "osc2Oct", "osc2Detune", "osc2Level" } },
             { "OSC 3", 0, { "osc3On", "osc3Wave", "osc3Oct", "osc3Detune", "osc3Level" } },
             { "WAVETABLE OSC", 0, { "wtOn", "wtOct", "wtDetune", "wtPos", "wtEnvAmt", "wtLfoWave", "wtLfoRate", "wtLfoAmt", "lfoToFilter", "wtLevel" } },
-            { "FILTER", 0, { "cutoff", "resonance", "contour", "filterDrive" } },
+            { "FILTER", 0, { "cutoff", "resonance", "contour" } },
             { "FILTER ENV", 0, { "fAttack", "fDecay", "fSustain", "fRelease" } },
             { "AMP ENV", 0, { "aAttack", "aDecay", "aSustain", "aRelease" } },
             { "VOICE", 1, { "polyVoices", "unisonVoices", "unisonDetune", "unisonSpread", "syncMode", "syncPitch", "syncEnv", "analogDrift", "glide", "oversampling" } },
